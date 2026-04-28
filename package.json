@@ -1,0 +1,41 @@
+{
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "buffer-equal-constant-time": "^1.0.1",
+    "cloudinary": "^1.41.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^4.22.1",
+    "express-rate-limit": "^7.1.5",
+    "express-session": "^1.17.3",
+    "handlebars": "^4.7.8",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.2.2",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^8.0.1",
+    "otp-generator": "^4.0.1",
+    "passport": "^0.7.0",
+    "passport-facebook": "^3.0.0",
+    "passport-google-oauth20": "^2.0.0",
+    "redis": "^4.6.12",
+    "socket.io": "^4.7.4",
+    "standard-version": "^9.5.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "release": "standard-version"
+  },
+  "name": "nushopa-backend",
+  "version": "1.7.2",
+  "main": "server.js",
+  "author": "Khalid Zikirullah, dev-phantom",
+  "license": "ISC",
+  "description": "the server for nushopa",
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

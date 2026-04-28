@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      background-color: #f8f8f8;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 600px;
+      margin: 20px auto;
+      background-color: #ffffff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+    }
+    .header {
+      background-color: #007145;
+      color: #ffffff;
+      padding: 20px;
+      border-radius: 8px 8px 0 0;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+    .content {
+      padding: 20px;
+    }
+    .content p {
+      margin: 10px 0;
+      font-size: 16px;
+    }
+    .product-list {
+      list-style-type: none;
+      padding: 0;
+      margin: 20px 0;
+    }
+    .product-list li {
+      border-bottom: 1px solid #dddddd;
+      padding: 15px 0;
+      display: flex;
+      align-items: center;
+    }
+    .product-list img {
+      max-width: 200px;
+      margin-right: 20px;
+      border-radius: 5px;
+    }
+    .product-details {
+      flex-grow: 1;
+    }
+    .product-details p {
+      margin: 5px 0;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+    }
+    .footer p {
+      font-size: 14px;
+      color: #999999;
+    }
+    .footer p a {
+      color: #007145;
+      text-decoration: none;
+    }
+    .footer p a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>New Order {{orderID}}</h1>
+    </div>
+    <div class="content">
+      <p>You have a new order with ID: <strong>{{orderID}}</strong>.</p>
+      <p>Please review the following products:</p>
+      <ul class="product-list">
+        {{#each products}}
+        <li>
+          <img src="{{this.image}}" alt="{{this.name}}">
+          <div class="product-details">
+            <p><strong>{{increment @index}}. Name:</strong> {{this.name}}</p>
+            <p><strong>Brand:</strong> {{this.brand}}</p>
+            <p><strong>Description:</strong> {{this.description}}</p>
+            <p><strong>Price:</strong> ₦{{this.price}}</p>
+            <p><strong>Quantity:</strong> {{this.quantity}}</p>
+          </div>
+        </li>
+        {{/each}}
+      </ul>
+      <p>Reply to this email with the numbers of the products you have in stock.</p>
+    </div>
+    <div class="footer">
+      <p>&copy; 2024 Nushopa. All rights reserved.</p>
+      <p><a href="#">Unsubscribe</a> | <a href="#">Privacy Policy</a></p>
+    </div>
+  </div>
+</body>
+</html>
