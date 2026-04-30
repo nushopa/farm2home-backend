@@ -1,9 +1,12 @@
 const mongoose = require("mongoose");
 
-const advertSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  imageUrl: { type: String, required: true }, 
-  createdAt: { type: Date, default: Date.now },
-});
+const AdvertSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true },
+    imageUrl: { type: String, required: true },
+    publicId: { type: String, required: true },
+  },
+  { timestamps: true }
+);
 
-module.exports = mongoose.model("Advert", advertSchema);
+module.exports = mongoose.model("Advert", AdvertSchema);
