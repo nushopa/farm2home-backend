@@ -41,6 +41,10 @@ app.use(
   })
 );
 
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 // =============================================
 // SOCKET.IO
 // =============================================
@@ -191,6 +195,7 @@ connectDB()
       console.log(`📄 Swagger docs available at http://localhost:${PORT}/api-docs`);
     });
   })
+  
   .catch((error) => {
     console.error("Database connection error:", error);
     process.exit(1);
