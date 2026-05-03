@@ -1,14 +1,18 @@
 const Customer = require("../models/Customer");
 const bcrypt = require("bcrypt");
-const nodemailer = require("nodemailer");
+//const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
 const otpGenerator = require("otp-generator");
 const Forget = require("../models/Forget");
 const { sendEmail } = require("../lib/util/sendEmail");
 const { authMiddleware } = require("../middleware/authMiddleware");
 const Notification = require("../models/Notification");
-const TempUser = require("../models/tempUser"); 
+const TempUser = require("../models/tempUser");
 const BlacklistedToken = require("../models/BlacklistedToken");
+const { Resend } = require("resend");
+
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 module.exports.createAccount = async (io, req, res, next) => {
   try {
@@ -51,13 +55,13 @@ module.exports.createAccount = async (io, req, res, next) => {
 
     // Remove any existing temp user with same email
     await TempUser.deleteOne({ email });
-    
+
     // Create new temp user
     await TempUser.create(tempUserData);
 
     // Send OTP via email
     let subject = "Verify Your Email - Nushopa";
-    let emailFileName = "otpVerificationTemp"; 
+    let emailFileName = "otpVerificationTemp";
     const dataDetails = {
       first_name,
       last_name,
@@ -67,9 +71,9 @@ module.exports.createAccount = async (io, req, res, next) => {
     const recieverEmail = email;
     await sendEmail(recieverEmail, dataDetails, subject, emailFileName);
 
-    res.status(200).send({ 
+    res.status(200).send({
       message: "OTP sent to your email. Please verify to complete registration.",
-      email: email 
+      email: email
     });
   } catch (error) {
     next(error);
@@ -136,9 +140,9 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
     const notifications = await Notification.find();
     io.emit("notification", notifications);
 
-    res.status(201).send({ 
+    res.status(201).send({
       message: "Account created successfully!",
-      data 
+      data
     });
   } catch (error) {
     next(error);
@@ -183,9 +187,9 @@ module.exports.resendOTP = async (req, res, next) => {
     const recieverEmail = email;
     await sendEmail(recieverEmail, dataDetails, subject, emailFileName);
 
-    res.status(200).send({ 
+    res.status(200).send({
       message: "New OTP sent to your email.",
-      email: email 
+      email: email
     });
   } catch (error) {
     next(error);
@@ -296,7 +300,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
       const { userId } = req; // Get userId from authMiddleware (req.user.userId)
-      
+
       if (!userId) {
         return res.status(401).send({ message: "Unauthorized" });
       }
@@ -307,8 +311,8 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
       }
 
       if (marketRep.role !== 6000) {
-        return res.status(403).send({ 
-          message: "This is only for Market Representatives" 
+        return res.status(403).send({
+          message: "This is only for Market Representatives"
         });
       }
 
@@ -329,7 +333,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
 
       // Return updated profile (excluding password)
       const { password, ...profileData } = marketRep.toObject();
-      
+
       return res.status(200).send({
         success: true,
         message: "Profile updated successfully",
@@ -408,10 +412,10 @@ module.exports.forgetPassword = async (req, res, next) => {
     const savedOtp = await Forget.findOne({ user_id: exitMail._id });
 
     // Send mail
-    const transporter = nodemailer.createTransport({
+    /*const transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
       port: parseInt(process.env.EMAIL_PORT, 10),
-      secure: false, // true for 465, false for other ports
+      secure: false, 
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -429,7 +433,22 @@ module.exports.forgetPassword = async (req, res, next) => {
       return res.status(200).send(true);
     } else {
       return res.status(400).send({ message: "An error occurred!" });
+    }*/
+
+    const { data, error } = await resend.emails.send({
+      from: "Nushopa <info@nushopa.com>",
+      to: exitMail.email,
+      subject: "Confirmation code ✔",
+      text: `Your verification code is: ${otp}`,
+    });
+
+    if (error) {
+      console.error("Resend error:", error);
+      return res.status(400).send({ message: "An error occurred!" });
     }
+
+    return res.status(200).send(true);
+
   } catch (error) {
     next(error);
   }
@@ -521,20 +540,20 @@ module.exports.getCustomerCountByMonth = async (req, res, next) => {
 
 // get all distributors with pagination
 module.exports.getAllDistributors = async (req, res, next) => {
-  const { page = 1, limit = 20 } = req.query; 
+  const { page = 1, limit = 20 } = req.query;
   const skip = (page - 1) * limit;
 
   try {
     authMiddleware(req, res, async () => {
       const { role } = req.role;
       if (role === 2001) {
-        return res.status(401).send({ 
-          message: "You are not authorized to access this route" 
+        return res.status(401).send({
+          message: "You are not authorized to access this route"
         });
       }
 
       const distributors = await Customer.find({ role: 6000 })
-       .select('-password')  // Exclude password
+        .select('-password')  // Exclude password
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -542,7 +561,7 @@ module.exports.getAllDistributors = async (req, res, next) => {
 
       const totalDistributors = await Customer.countDocuments({ role: 6000 });
 
-      return res.status(200).send({ 
+      return res.status(200).send({
         distributors,
         totalDistributors,
         currentPage: parseInt(page),
@@ -559,9 +578,9 @@ module.exports.getSingleDistributor = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
       const { id } = req.params;
-      const distributor = await Customer.findOne({ 
-        _id: id, 
-        role: 6000  
+      const distributor = await Customer.findOne({
+        _id: id,
+        role: 6000
       }).select('-password').lean();
 
       if (!distributor) {
@@ -581,7 +600,7 @@ module.exports.getProfileDetails = async (req, res, next) => {
     authMiddleware(req, res, async () => {
       const { userId } = req;
 
-      if(!userId) {
+      if (!userId) {
         return res.status(401).send({ message: "Unauthorized" });
       }
 
@@ -591,7 +610,7 @@ module.exports.getProfileDetails = async (req, res, next) => {
         return res.status(404).send({ message: "Customer not found!" });
       }
 
-      return res.status(200).send({ 
+      return res.status(200).send({
         success: true,
         message: "Profile details retrieved successfully",
         customer
@@ -611,8 +630,8 @@ module.exports.logoutUser = async (req, res, next) => {
       return res.status(401).json({ message: "No token provided" });
     }
 
-    await BlacklistedToken.create({token});
-    
+    await BlacklistedToken.create({ token });
+
     return res.status(200).json({
       message: "Logged out successfully",
       success: true,
