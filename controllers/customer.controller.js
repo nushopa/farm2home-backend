@@ -345,8 +345,6 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
     next(error);
   }
 };
-
-
 // delete profile
 module.exports.deleteCustomer = async (req, res, next) => {
   try {
@@ -377,7 +375,7 @@ module.exports.forgetPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
 
-    if (!email)
+    if (!email)    
       return res.status(400).send({ message: "All Fields Are Required!" });
 
     // Check if email exists
@@ -386,6 +384,7 @@ module.exports.forgetPassword = async (req, res, next) => {
       return res.status(404).send({
         message: "Email Not Found, Please Verify Your Email And Try Again",
       });
+
 
     // Generate OTP
     const otp = otpGenerator.generate(6, {
@@ -436,15 +435,17 @@ module.exports.forgetPassword = async (req, res, next) => {
     }*/
 
     const { data, error } = await resend.emails.send({
-      from: "Nushopa <info@nushopa.com>",
+      from: "onboarding@resend.dev",
       to: exitMail.email,
       subject: "Confirmation code ✔",
-      text: `Your verification code is: ${otp}`,
+      text: `Your Nushopa password reset code is: ${otp}\n\nThis code expires in 10 minutes. If you did not request a password reset, please ignore this email.`,
     });
 
     if (error) {
       console.error("Resend error:", error);
-      return res.status(400).send({ message: "An error occurred!" });
+      return res.status(400).send({ 
+        message: "An error occurred!" 
+      });
     }
 
     return res.status(200).send(true);
