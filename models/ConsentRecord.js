@@ -1,20 +1,24 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const ConsentSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  preferences: {
-    essential: { type: Boolean, required: true },
-    analytics: { type: Boolean, required: true },
-    marketing: { type: Boolean, required: true },
+const ConsentRecordSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: String, 
+      required: true,
+      index: true,
+    },
+    preferences: {
+      essential: { type: Boolean, default: true },
+      analytics: { type: Boolean, default: false },
+      marketing: { type: Boolean, default: false },
+    },
+    timestamp: { type: Date, required: true },
+    version: { type: String, required: true },
+    userAgent: { type: String, default: null },
+    ipAddress: { type: String, default: null },
   },
-  timestamp: { type: Date, required: true },
-  version: { type: String, required: true },
-  userAgent: { type: String },
-});
+  { timestamps: true }
+);
 
-// Optional: enforce unique userId if you only want one record per user
-ConsentSchema.index({ userId: 1 }, { unique: true });
-
-const ConsentRecord = mongoose.model('ConsentRecord', ConsentSchema);
-
+const ConsentRecord = mongoose.model("ConsentRecord", ConsentRecordSchema);
 module.exports = ConsentRecord;
