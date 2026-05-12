@@ -156,6 +156,7 @@ const MarketplaceRouter = require("./routes/marketplace.route");
 const DriverRouter = require("./routes/driver.route");
 const RepDashboardRouter = require("./routes/repDashboard.router");
 const AdvertRouter = require("./routes/advertRoutes");
+const ConsentRoute = require("./routes/consentRoutes"); 
 
 app.use("/", CustomerRouter(io));
 app.use("/product", productRouter);
@@ -172,7 +173,7 @@ app.use("/review", ReviewRouter);
 app.use("/driver", DriverRouter(io));
 app.use("/marketrep", RepDashboardRouter(io));
 app.use("/adverts", AdvertRouter());
-
+app.use("/consent", ConsentRoute ());
 // 404 fallback
 app.use((req, res) => {
   res.status(404).send("Page not found!");
