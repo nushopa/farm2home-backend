@@ -4,6 +4,7 @@ const {
   loginUser,
   getAllCustomers,
   getAllDistributors,
+  getSingleDistributor,      // ← ADD THIS LINE
   updateProfile,
   getSingleCustomer,
   deleteCustomer,
@@ -15,20 +16,25 @@ const {
   verifyOTPAndCreateAccount,
   logoutUser,
   getProfileDetails,
-  getSingleDistributor,
-  updateMarketRepProfile
+  updateMarketRepProfile,
+  googleAuth,
+  googleCallback,
+  facebookAuth,
+  facebookCallback,
 } = require("../controllers/customer.controller");
 const {
   getCustomerCount,
 } = require("../controllers/dashboardSummary.controller");
-const {authMiddleware} = require("../middleware/authMiddleware")
+const { authMiddleware } = require("../middleware/authMiddleware");
 
 const CustomerRouter = (io) => {
   const router = Router();
 
   // Auth routes
   router.post("/create", (req, res, next) => createAccount(io, req, res, next));
-  router.post("/verify-otp", (req, res, next) => verifyOTPAndCreateAccount(io, req, res, next));
+  router.post("/verify-otp", (req, res, next) =>
+    verifyOTPAndCreateAccount(io, req, res, next),
+  );
   router.post("/resend-otp", resendOTP);
   router.post("/login", loginUser);
   router.post("/logout", logoutUser);
@@ -53,9 +59,17 @@ const CustomerRouter = (io) => {
 
   // ✅ Wildcard routes LAST
   router.get("/customers", getAllCustomers);
-  router.get("/customers/:id", getSingleCustomer);       // ← wildcard, goes last
+  router.get("/customers/:id", getSingleCustomer); // ← wildcard, goes last
   router.delete("/customers/:id", deleteCustomer);
 
+
+  //google auth
+  router.get("/auth/google", googleAuth);
+  router.get("/auth/google/callback", googleCallback);
+
+  //Facebook auth 
+  router.get("/auth/facebook", facebookAuth);
+  router.get("/auth/facebook/callback", facebookCallback);
 
   return router;
 };

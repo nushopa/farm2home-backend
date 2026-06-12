@@ -18,7 +18,7 @@ const CustomerSchema = new Schema(
     },
     password: {
       type: String,
-      required: true,
+      default: null,
     },
     phone_number: {
       type: String,
@@ -40,8 +40,8 @@ const CustomerSchema = new Schema(
       default: null,
     },
     proof_Of_Identity: {
-      type: String, 
-      default: null
+      type: String,
+      default: null,
     },
     status: {
       type: String,
@@ -52,8 +52,17 @@ const CustomerSchema = new Schema(
       type: Boolean,
       default: null,
     },
+    auth_provider: {
+      type: String,
+      enum: ["email", "google", "facebook", "apple"],
+      default: "email",
+    },
+    provider_id: {
+      type: String,
+      default: null,
+    },
     profile_picture: {
-      type: String, 
+      type: String,
       default: null,
     },
     date_of_birth: {
@@ -61,7 +70,7 @@ const CustomerSchema = new Schema(
       default: null,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = model("Customer", CustomerSchema);

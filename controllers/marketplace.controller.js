@@ -86,7 +86,7 @@ async function deleteMarket(req, res, next) {
 }
 
 async function editMarket(req, res, next) {
-  const { id, ...marketData } = req.body; // Extract market ID and market data from request body
+  const { id, ...marketData } = req.body;
   try {
     const updatedMarket = await Market.findByIdAndUpdate(id, marketData, {
       new: true,
@@ -104,6 +104,8 @@ async function editMarket(req, res, next) {
       .json({ success: false, message: "Failed to update market" });
   }
 }
+
+
 async function getMarketById(req, res, next) {
   const { id } = req.params;
   try {

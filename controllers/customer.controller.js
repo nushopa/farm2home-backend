@@ -10,6 +10,7 @@ const Notification = require("../models/Notification");
 const TempUser = require("../models/tempUser");
 const BlacklistedToken = require("../models/BlacklistedToken");
 const { Resend } = require("resend");
+const passport = require("../config/passport");
 
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -410,30 +411,6 @@ module.exports.forgetPassword = async (req, res, next) => {
     // Verify OTP is saved correctly
     const savedOtp = await Forget.findOne({ user_id: exitMail._id });
 
-    // Send mail
-    /*const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST,
-      port: parseInt(process.env.EMAIL_PORT, 10),
-      secure: false, 
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    const info = await transporter.sendMail({
-      from: "info@nushopa.com",
-      to: `${exitMail.email}`,
-      subject: "Confirmation code ✔",
-      text: `Your verification code is: ${otp}`,
-    });
-
-    if (info.messageId) {
-      return res.status(200).send(true);
-    } else {
-      return res.status(400).send({ message: "An error occurred!" });
-    }*/
-
     const { data, error } = await resend.emails.send({
       from: "onboarding@resend.dev",
       to: exitMail.email,
@@ -641,3 +618,54 @@ module.exports.logoutUser = async (req, res, next) => {
     next(error);
   }
 };
+
+module.exports.googleAuth = (req, res, next) => {
+  passport.authenticate("google", { scope: ["profile", "email"] })(req, res, next);
+};
+
+module.exports.facebookAuth = (req, res, next) => {
+  passport.authenticate("facebook", { scope: ["email"] })(req, res, next);
+};
+
+module.exports.googleCallback = (req, res, next) => {
+  passport.authenticate("google", { session: false }, async (err, customer) => {
+    try {
+      if (err || !customer) {
+        return res.status(401).send({ message: "Google authentication failed" });
+      }
+
+      const token = jwt.sign(
+        { userId: customer._id, role: customer.role },
+        process.env.JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      const { password, provider_id, auth_provider, createdAt, updatedAt, ...others } = customer.toObject();
+      return res.status(200).send({ user: others, token });
+    } catch (error) {
+      next(error);
+    }
+  })(req, res, next);
+};
+
+module.exports.facebookCallback = (req, res, next) => {
+  passport.authenticate("facebook", { session: false }, async (err, customer) => {
+    try {
+      if (err || !customer) {
+        return res.status(401).send({ message: "Facebook authentication failed" });
+      }
+
+      const token = jwt.sign(
+        { userId: customer._id, role: customer.role },
+        process.env.JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      const { password, provider_id, auth_provider, createdAt, updatedAt, ...others } = customer.toObject();
+      return res.status(200).send({ user: others, token });
+    } catch (error) {
+      next(error);
+    }
+  })(req, res, next);
+};
+

@@ -1,56 +1,68 @@
-const passport = require("passport");
-const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const passport         = require("passport");
+const GoogleStrategy   = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy;
-const Distributor = require("../models/Distributor");
+const fs               = require("fs");
+const Customer         = require("../models/Customer");
 
+// ─── Reusable: find or create any customer ───────────────────────────────────
+const findOrCreateUser = async ({ email, firstName, lastName, profilePicture, providerId, authProvider }) => {
+  if (!providerId) throw new Error(`Could not get ${authProvider} user ID.`);
+
+  let customer = await Customer.findOne({
+    $or: [
+      { provider_id: providerId },
+      ...(email ? [{ email }] : []),
+    ],
+  });
+
+  if (customer) {
+    // If they previously registered with email, link their OAuth provider
+    if (customer.auth_provider === "email") {
+      customer.auth_provider = authProvider;
+      customer.provider_id   = providerId;
+      if (profilePicture && !customer.profile_picture) {
+        customer.profile_picture = profilePicture;
+      }
+      await customer.save();
+    }
+    return customer;
+  }
+
+  // New customer — create with default role 2001
+  customer = await Customer.create({
+    first_name:      firstName,
+    last_name:       lastName,
+    email:           email || null,
+    password:        null,
+    profile_picture: profilePicture || null,
+    auth_provider:   authProvider,
+    provider_id:     providerId,
+    role:            2001,
+  });
+
+  return customer;
+};
+
+// ─── Google ───────────────────────────────────────────────────────────────────
 passport.use(
   new GoogleStrategy(
     {
       clientID:     process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL:  process.env.GOOGLE_CALLBACK_URL, 
+      callbackURL:  `${process.env.BACKEND_URL}/auth/google/callback`,
       scope:        ["profile", "email"],
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        const email         = profile.emails?.[0]?.value;
-        const firstName     = profile.name?.givenName;
-        const lastName      = profile.name?.familyName;
-        const profilePicture = profile.photos?.[0]?.value;
-        const providerId    = profile.id;
-
-        if (!email) {
-          return done(new Error("No email returned from Google."), null);
-        }
-
-        // Check if distributor already exists by providerId or email
-        let distributor = await Distributor.findOne({
-          $or: [{ providerId }, { email }],
+        const customer = await findOrCreateUser({
+          email:          profile.emails?.[0]?.value,
+          firstName:      profile.name?.givenName  || "",
+          lastName:       profile.name?.familyName || "",
+          profilePicture: profile.photos?.[0]?.value || null,
+          providerId:     profile.id,
+          authProvider:   "google",
         });
-
-        if (distributor) {
-          // Existing user — update provider info if they previously used email
-          if (distributor.authProvider === "email") {
-            distributor.authProvider = "google";
-            distributor.providerId   = providerId;
-            await distributor.save();
-          }
-          return done(null, distributor);
-        }
-
-        // New user — create a partial account (profile completion required)
-        distributor = await Distributor.create({
-          firstName,
-          lastName,
-          email,
-          password:          null,
-          profilePicture,
-          authProvider:      "google",
-          providerId,
-          isProfileComplete: false,
-        });
-
-        return done(null, distributor);
+        return done(null, customer);
       } catch (error) {
         return done(error, null);
       }
@@ -58,54 +70,26 @@ passport.use(
   )
 );
 
-/**
- * Facebook OAuth Strategy
- */
+// ─── Facebook ─────────────────────────────────────────────────────────────────
 passport.use(
   new FacebookStrategy(
     {
-      clientID:     process.env.FACEBOOK_APP_ID,
-      clientSecret: process.env.FACEBOOK_APP_SECRET,
-      callbackURL:  process.env.FACEBOOK_CALLBACK_URL,
-      profileFields: ["id", "emails", "name", "photos"],
+      clientID:      process.env.FACEBOOK_APP_ID,
+      clientSecret:  process.env.FACEBOOK_APP_SECRET,
+      callbackURL:   process.env.FACEBOOK_CALLBACK_URL,
+      profileFields: ["id", "emails", "name", "picture.type(large)"],
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        const email          = profile.emails?.[0]?.value;
-        const firstName      = profile.name?.givenName  || "";
-        const lastName       = profile.name?.familyName || "";
-        const profilePicture = profile.photos?.[0]?.value || "";
-        const providerId     = profile.id;
-
-        if (!email) {
-          return done(new Error("No email returned from Facebook. Please ensure your Facebook account has a verified email."), null);
-        }
-
-        let distributor = await Distributor.findOne({
-          $or: [{ providerId }, { email }],
+        const customer = await findOrCreateUser({
+          email:          profile.emails?.[0]?.value || null,
+          firstName:      profile.name?.givenName  || "",
+          lastName:       profile.name?.familyName || "",
+          profilePicture: profile.photos?.[0]?.value || null,
+          providerId:     profile.id,
+          authProvider:   "facebook",
         });
-
-        if (distributor) {
-          if (distributor.authProvider === "email") {
-            distributor.authProvider = "facebook";
-            distributor.providerId   = providerId;
-            await distributor.save();
-          }
-          return done(null, distributor);
-        }
-
-        distributor = await Distributor.create({
-          firstName,
-          lastName,
-          email,
-          password:          null,
-          profilePicture,
-          authProvider:      "facebook",
-          providerId,
-          isProfileComplete: false,
-        });
-
-        return done(null, distributor);
+        return done(null, customer);
       } catch (error) {
         return done(error, null);
       }
@@ -113,12 +97,13 @@ passport.use(
   )
 );
 
-// Serialize/deserialize only used if you use sessions (we use JWT so these are minimal)
-passport.serializeUser((user, done) => done(null, user._id));
+
+// ─── Session (minimal — JWT-based, session: false used in routes) ─────────────
+passport.serializeUser((customer, done)       => done(null, customer._id));
 passport.deserializeUser(async (id, done) => {
   try {
-    const user = await Distributor.findById(id);
-    done(null, user);
+    const customer = await Customer.findById(id);
+    done(null, customer);
   } catch (err) {
     done(err, null);
   }
