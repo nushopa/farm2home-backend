@@ -1,4 +1,5 @@
 const Cart = require("../models/Cart");
+const Product = require("../models/Product");
 
 module.exports.addToCart = async (req, res, next) => {
   try {
@@ -8,6 +9,17 @@ module.exports.addToCart = async (req, res, next) => {
       return res
         .status(400)
         .send({ message: "Customer or product ID is required" });
+
+    // Block out-of-stock products from being added at all
+    const product = await Product.findById(product_id);
+    if (!product) {
+      return res.status(404).send({ message: "Product not found" });
+    }
+    if (product.out_of_stock) {
+      return res
+        .status(400)
+        .send({ message: "This product is currently out of stock" });
+    }
 
     // Check if the product already exists in the cart for the customer
     const existingCartItem = await Cart.findOne({ product_id, customer_id });
@@ -30,6 +42,7 @@ module.exports.addToCart = async (req, res, next) => {
     next(error);
   }
 };
+
 module.exports.getSingleCart = async (req, res, next) => {
   try {
     const cart = await Cart.find({ customer_id: req.params.id }).populate(
@@ -41,12 +54,19 @@ module.exports.getSingleCart = async (req, res, next) => {
   }
 };
 
-// increamenet
+// increment
 module.exports.addToQuatity = async (req, res, next) => {
   try {
-    const cart = await Cart.findById(req.body.id);
+    const cart = await Cart.findById(req.body.id).populate("product_id");
 
     if (cart) {
+      // Guard against incrementing quantity on a product that went
+      // out of stock while it was already sitting in the cart.
+      if (cart.product_id?.out_of_stock) {
+        return res
+          .status(400)
+          .send({ message: "This product is currently out of stock" });
+      }
       cart.product_quatity += 1;
       await cart.save();
       return res.status(200).send({ cart: cart._id });

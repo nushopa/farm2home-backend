@@ -53,6 +53,10 @@ const ProductSchema = new Schema(
       default: 1,
       required: true,
     },
+    out_of_stock: {
+     type: Boolean,
+     default: false,
+    },
   },
   { timestamps: true }
 );

@@ -6,6 +6,7 @@ const {
   removeProduct,
   updateProduct,
   getProductCount,
+  toggleStock,
 } = require("../controllers/product.controller");
 const { getByQuery } = require("../controllers/categorie.controller");
 
@@ -25,6 +26,9 @@ productRouter.delete("/remove/:id", removeProduct);
 
 // update product
 productRouter.put("/update", updateProduct);
+
+// toggle a product's out-of-stock status (admin)
+productRouter.patch("/toggle-stock", toggleStock);
 
 productRouter.get("/categories", getByQuery);
 

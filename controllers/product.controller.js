@@ -3,11 +3,10 @@ const Cart = require("../models/Cart");
 
 module.exports.getAllProduct = async (req, res, next) => {
   try {
-    const { q, page = 1, limit = 50 } = req.query; // Default to page 1 and limit of 20
-    const skip = (page - 1) * limit; // Calculate the number of items to skip
+    const { q, page = 1, limit = 50 } = req.query;
+    const skip = (page - 1) * limit;
 
     if (q) {
-      // Fetch products by category with pagination
       const products = await Product.find({ product_cat: q })
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -23,7 +22,6 @@ module.exports.getAllProduct = async (req, res, next) => {
       });
     }
 
-    // Fetch all products with pagination
     const products = await Product.find()
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -67,6 +65,7 @@ module.exports.addProduct = async (req, res, next) => {
       product_rate,
       product_image,
       product_cost_price,
+      out_of_stock,
     } = req.body;
 
     if (
@@ -95,6 +94,9 @@ module.exports.addProduct = async (req, res, next) => {
       product_rate,
       product_total,
       product_cost_price,
+      // Defaults to false in the schema if not provided, but respected if the
+      // admin form explicitly sets a product as out of stock at creation time.
+      out_of_stock: out_of_stock ?? false,
     })
       .then((data) => res.status(201).send({ data }))
       .catch((error) => next("1", error));
@@ -135,6 +137,36 @@ module.exports.updateProduct = async (req, res, next) => {
   } catch (error) {
     console.error(error);
     res.status(400).send({ error });
+  }
+};
+
+// Dedicated endpoint for the admin table's stock toggle. Keeps the intent
+// explicit (and lets you add side effects later, e.g. notifying customers
+// with the product in their cart) rather than overloading updateProduct.
+module.exports.toggleStock = async (req, res, next) => {
+  try {
+    const { id, out_of_stock } = req.body;
+
+    if (!id || typeof out_of_stock !== "boolean") {
+      return res
+        .status(400)
+        .send({ message: "id and a boolean out_of_stock are required." });
+    }
+
+    const updatedProduct = await Product.findByIdAndUpdate(
+      id,
+      { $set: { out_of_stock } },
+      { new: true }
+    );
+
+    if (!updatedProduct) {
+      return res.status(404).send({ message: "Product not found." });
+    }
+
+    res.status(200).send({ data: updatedProduct });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "An unknown error occurred." });
   }
 };
 
