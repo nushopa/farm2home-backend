@@ -1,6 +1,5 @@
 const Customer = require("../models/Customer");
 const bcrypt = require("bcrypt");
-//const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
 const otpGenerator = require("otp-generator");
 const Forget = require("../models/Forget");
@@ -11,7 +10,6 @@ const TempUser = require("../models/tempUser");
 const BlacklistedToken = require("../models/BlacklistedToken");
 const { Resend } = require("resend");
 const passport = require("../config/passport");
-
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -24,7 +22,6 @@ module.exports.createAccount = async (io, req, res, next) => {
       return res.status(400).send({ message: "Credentials are required!" });
     }
 
-    // Check if email already exists in main Customer collection
     const check = await Customer.findOne({ email });
     if (check) {
       return res
@@ -32,17 +29,14 @@ module.exports.createAccount = async (io, req, res, next) => {
         .send({ message: "Account with this email already exists" });
     }
 
-    // Generate OTP
     const otp = otpGenerator.generate(6, {
       upperCaseAlphabets: false,
       lowerCaseAlphabets: false,
       specialChars: false,
     });
 
-    // Hash password
     const hashPassword = await bcrypt.hash(password, 13);
 
-    // Store temporary user data with OTP (expires in 10 minutes)
     const tempUserData = {
       first_name,
       last_name,
@@ -51,16 +45,12 @@ module.exports.createAccount = async (io, req, res, next) => {
       password: hashPassword,
       role,
       otp,
-      otpExpires: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+      otpExpires: new Date(Date.now() + 10 * 60 * 1000),
     };
 
-    // Remove any existing temp user with same email
     await TempUser.deleteOne({ email });
-
-    // Create new temp user
     await TempUser.create(tempUserData);
 
-    // Send OTP via email
     let subject = "Verify Your Email - Nushopa";
     let emailFileName = "otpVerificationTemp";
     const dataDetails = {
@@ -89,24 +79,20 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
       return res.status(400).send({ message: "Email and OTP are required!" });
     }
 
-    // Find temp user - now using TempUser model name
     const tempUserRecord = await TempUser.findOne({ email });
     if (!tempUserRecord) {
       return res.status(400).send({ message: "Invalid request or OTP expired" });
     }
 
-    // Check if OTP is expired
     if (tempUserRecord.otpExpires < new Date()) {
       await TempUser.deleteOne({ email });
       return res.status(400).send({ message: "OTP has expired. Please register again." });
     }
 
-    // Verify OTP
     if (tempUserRecord.otp !== otp) {
       return res.status(400).send({ message: "Invalid OTP" });
     }
 
-    // Create actual user account
     const data = await Customer.create({
       first_name: tempUserRecord.first_name,
       last_name: tempUserRecord.last_name,
@@ -116,10 +102,8 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
       role: tempUserRecord.role,
     });
 
-    // Delete temp user data
     await TempUser.deleteOne({ email });
 
-    // Send welcome email
     let subject = "Welcome to Nushopa";
     let emailFileName = "newUserEmailTemp";
     const dataDetails = {
@@ -130,14 +114,12 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
     const recieverEmail = email;
     await sendEmail(recieverEmail, dataDetails, subject, emailFileName);
 
-    // Create notification
     await Notification.create({
       title: "A new account has been created",
       full_name: `${tempUserRecord.first_name.trim()} ${tempUserRecord.last_name.trim()}`,
       category: "account-creation",
     });
 
-    // Emit notifications to all connected clients
     const notifications = await Notification.find();
     io.emit("notification", notifications);
 
@@ -158,25 +140,21 @@ module.exports.resendOTP = async (req, res, next) => {
       return res.status(400).send({ message: "Email is required!" });
     }
 
-    // Find temp user - now using TempUser model name
     const tempUserRecord = await TempUser.findOne({ email });
     if (!tempUserRecord) {
       return res.status(400).send({ message: "No pending registration found for this email" });
     }
 
-    // Generate new OTP
     const otp = otpGenerator.generate(6, {
       upperCaseAlphabets: false,
       lowerCaseAlphabets: false,
       specialChars: false,
     });
 
-    // Update temp user with new OTP and expiry
     tempUserRecord.otp = otp;
     tempUserRecord.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await tempUserRecord.save();
 
-    // Send new OTP via email
     let subject = "Verify Your Email - Nushopa";
     let emailFileName = "otpVerificationTemp";
     const dataDetails = {
@@ -204,7 +182,6 @@ module.exports.loginUser = async (req, res, next) => {
     if (!email || !pass)
       return res.status(400).send({ message: "Email or Password is required" });
 
-    // check if user exit
     const userCheck = await Customer.findOne({ email });
     if (userCheck) {
       const verifyPassword = await bcrypt.compare(pass, userCheck.password);
@@ -227,10 +204,9 @@ module.exports.loginUser = async (req, res, next) => {
   }
 };
 
-// get all customers/users
 module.exports.getAllCustomers = async (req, res, next) => {
-  const { page = 1, limit = 20 } = req.query; // Default to page 1 and limit of 20
-  const skip = (page - 1) * limit; // Calculate the number of items to skip
+  const { page = 1, limit = 20 } = req.query;
+  const skip = (page - 1) * limit;
 
   try {
     authMiddleware(req, res, async () => {
@@ -257,7 +233,7 @@ module.exports.getAllCustomers = async (req, res, next) => {
     next(error);
   }
 };
-// get single customer/user
+
 module.exports.getSingleCustomer = async (req, res, next) => {
   try {
     let { id } = req.params;
@@ -268,7 +244,6 @@ module.exports.getSingleCustomer = async (req, res, next) => {
   }
 };
 
-// update profile
 module.exports.updateProfile = async (req, res, next) => {
   try {
     const { id } = req.body;
@@ -296,11 +271,10 @@ module.exports.updateProfile = async (req, res, next) => {
   }
 };
 
-// update market rep
 module.exports.updateMarketRepProfile = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
-      const { userId } = req; // Get userId from authMiddleware (req.user.userId)
+      const { userId } = req;
 
       if (!userId) {
         return res.status(401).send({ message: "Unauthorized" });
@@ -319,7 +293,6 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
 
       const { city, address, date_of_birth, profile_picture, proof_Of_Identity } = req.body;
 
-      // Update only provided fields
       if (city !== undefined) marketRep.city = city?.trim() || null;
       if (address !== undefined) marketRep.address = address?.trim() || null;
       if (date_of_birth !== undefined) marketRep.date_of_birth = date_of_birth || null;
@@ -332,7 +305,6 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
 
       await marketRep.save();
 
-      // Return updated profile (excluding password)
       const { password, ...profileData } = marketRep.toObject();
 
       return res.status(200).send({
@@ -346,7 +318,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
     next(error);
   }
 };
-// delete profile
+
 module.exports.deleteCustomer = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
@@ -357,13 +329,11 @@ module.exports.deleteCustomer = async (req, res, next) => {
           .send({ message: "You are not authorized to access this route" });
       const { id } = req.params;
 
-      // Check if the customer exists
       const customer = await Customer.findById(id);
       if (!customer) {
         return res.status(404).send({ message: "Customer not found!" });
       }
 
-      // Delete the customer
       await Customer.findByIdAndDelete(id);
       return res.status(200).send({ message: "Customer deleted successfully" });
     });
@@ -371,36 +341,31 @@ module.exports.deleteCustomer = async (req, res, next) => {
     next(error);
   }
 };
-// Forget password
+
 module.exports.forgetPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
 
-    if (!email)    
+    if (!email)
       return res.status(400).send({ message: "All Fields Are Required!" });
 
-    // Check if email exists
     const exitMail = await Customer.findOne({ email });
     if (!exitMail)
       return res.status(404).send({
         message: "Email Not Found, Please Verify Your Email And Try Again",
       });
 
-
-    // Generate OTP
     const otp = otpGenerator.generate(6, {
       lowerCaseAlphabets: false,
       upperCaseAlphabets: false,
       specialChars: false,
     });
 
-    // Check for existing OTP and delete it
     const existingForget = await Forget.findOne({ user_id: exitMail._id });
     if (existingForget) {
       await Forget.deleteOne({ user_id: exitMail._id });
     }
 
-    // Save new OTP to database
     const forgetInstance = new Forget({
       user_id: exitMail._id,
       otp: otp,
@@ -408,7 +373,6 @@ module.exports.forgetPassword = async (req, res, next) => {
 
     await forgetInstance.save();
 
-    // Verify OTP is saved correctly
     const savedOtp = await Forget.findOne({ user_id: exitMail._id });
 
     const { data, error } = await resend.emails.send({
@@ -420,8 +384,8 @@ module.exports.forgetPassword = async (req, res, next) => {
 
     if (error) {
       console.error("Resend error:", error);
-      return res.status(400).send({ 
-        message: "An error occurred!" 
+      return res.status(400).send({
+        message: "An error occurred!"
       });
     }
 
@@ -431,7 +395,7 @@ module.exports.forgetPassword = async (req, res, next) => {
     next(error);
   }
 };
-// verify code
+
 module.exports.verifyCode = async (req, res, next) => {
   try {
     const { email, code } = req.body;
@@ -439,14 +403,12 @@ module.exports.verifyCode = async (req, res, next) => {
     if (!email || !code)
       return res.status(422).send({ message: "All Fields Are Required!" });
 
-    // Find user by email
     const user = await Customer.findOne({ email });
     if (!user)
       return res
         .status(404)
         .send({ message: "No account Found with this email!" });
 
-    // Retrieve saved OTP from database
     const value = await Forget.findOne({ user_id: user._id });
 
     if (value.otp === code) {
@@ -459,7 +421,7 @@ module.exports.verifyCode = async (req, res, next) => {
     next(error);
   }
 };
-// update user password
+
 module.exports.updateUserPassword = async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -467,17 +429,14 @@ module.exports.updateUserPassword = async (req, res, next) => {
     if (!email || !password)
       return res.status(422).send({ message: "All Fields Are Required!" });
 
-    // find user by email
     const user = await Customer.findOne({ email });
     if (!user)
       return res
         .status(404)
         .send({ message: "No account Found with this emaill!" });
 
-    // hashed password
     const hashPassword = await bcrypt.hash(password, 13);
 
-    // update password
     user.password = hashPassword;
     const saved = await user.save();
 
@@ -492,6 +451,7 @@ module.exports.updateUserPassword = async (req, res, next) => {
     next(error);
   }
 };
+
 module.exports.getCustomerCountByMonth = async (req, res, next) => {
   try {
     const customers = await Customer.find();
@@ -499,7 +459,7 @@ module.exports.getCustomerCountByMonth = async (req, res, next) => {
 
     customers.forEach((customer) => {
       const date = new Date(customer.createdAt);
-      const month = date.toLocaleString("default", { month: "short" }); // Get month name abbreviation
+      const month = date.toLocaleString("default", { month: "short" });
 
       if (!customerCountByMonth[month]) {
         customerCountByMonth[month] = 1;
@@ -516,7 +476,6 @@ module.exports.getCustomerCountByMonth = async (req, res, next) => {
   }
 };
 
-// get all distributors with pagination
 module.exports.getAllDistributors = async (req, res, next) => {
   const { page = 1, limit = 20 } = req.query;
   const skip = (page - 1) * limit;
@@ -531,7 +490,7 @@ module.exports.getAllDistributors = async (req, res, next) => {
       }
 
       const distributors = await Customer.find({ role: 6000 })
-        .select('-password')  // Exclude password
+        .select('-password')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -551,7 +510,6 @@ module.exports.getAllDistributors = async (req, res, next) => {
   }
 };
 
-// get single distributor
 module.exports.getSingleDistributor = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
@@ -572,7 +530,6 @@ module.exports.getSingleDistributor = async (req, res, next) => {
   }
 };
 
-//get all profile detsills
 module.exports.getProfileDetails = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
@@ -620,18 +577,34 @@ module.exports.logoutUser = async (req, res, next) => {
 };
 
 module.exports.googleAuth = (req, res, next) => {
-  passport.authenticate("google", { scope: ["profile", "email"] })(req, res, next);
-};
+  const state = crypto.randomBytes(16).toString("hex");
 
-module.exports.facebookAuth = (req, res, next) => {
-  passport.authenticate("facebook", { scope: ["email"] })(req, res, next);
+  res.cookie("google_oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 5 * 60 * 1000, // 5 minutes, plenty for the redirect round-trip
+  });
+
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    state,
+  })(req, res, next);
 };
 
 module.exports.googleCallback = (req, res, next) => {
   passport.authenticate("google", { session: false }, async (err, customer) => {
     try {
+      const returnedState = req.query.state;
+      const savedState = req.cookies?.google_oauth_state;
+      res.clearCookie("google_oauth_state");
+
+      if (!returnedState || !savedState || returnedState !== savedState) {
+        return res.redirect(`${process.env.FRONTEND_URL}/login?error=invalid_state`);
+      }
+
       if (err || !customer) {
-        return res.status(401).send({ message: "Google authentication failed" });
+        return res.redirect(`${process.env.FRONTEND_URL}/login?error=google_auth_failed`);
       }
 
       const token = jwt.sign(
@@ -640,32 +613,16 @@ module.exports.googleCallback = (req, res, next) => {
         { expiresIn: "7d" }
       );
 
-      const { password, provider_id, auth_provider, createdAt, updatedAt, ...others } = customer.toObject();
-      return res.status(200).send({ user: others, token });
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days, matches JWT expiry
+      });
+
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
     } catch (error) {
       next(error);
     }
   })(req, res, next);
 };
-
-module.exports.facebookCallback = (req, res, next) => {
-  passport.authenticate("facebook", { session: false }, async (err, customer) => {
-    try {
-      if (err || !customer) {
-        return res.status(401).send({ message: "Facebook authentication failed" });
-      }
-
-      const token = jwt.sign(
-        { userId: customer._id, role: customer.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "7d" }
-      );
-
-      const { password, provider_id, auth_provider, createdAt, updatedAt, ...others } = customer.toObject();
-      return res.status(200).send({ user: others, token });
-    } catch (error) {
-      next(error);
-    }
-  })(req, res, next);
-};
-

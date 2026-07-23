@@ -1,49 +1,57 @@
-const passport         = require("passport");
-const GoogleStrategy   = require("passport-google-oauth20").Strategy;
-const FacebookStrategy = require("passport-facebook").Strategy;
-const fs               = require("fs");
-const Customer         = require("../models/Customer");
+const passport       = require("passport");
+const GoogleStrategy  = require("passport-google-oauth20").Strategy;
+const Customer        = require("../models/Customer");
 
-// ─── Reusable: find or create any customer ───────────────────────────────────
-const findOrCreateUser = async ({ email, firstName, lastName, profilePicture, providerId, authProvider }) => {
-  if (!providerId) throw new Error(`Could not get ${authProvider} user ID.`);
+const findOrCreateGoogleUser = async (profile) => {
+  const providerId = profile.id;
+  const emailObj   = profile.emails?.[0];
+  const email      = emailObj?.value || null;
+  
+  const emailVerified = emailObj?.verified !== false;
+
+  if (!providerId) {
+    throw new Error("Could not get Google user ID.");
+  }
 
   let customer = await Customer.findOne({
-    $or: [
-      { provider_id: providerId },
-      ...(email ? [{ email }] : []),
-    ],
+    provider_id: providerId,
+    auth_provider: "google",
   });
 
   if (customer) {
-    // If they previously registered with email, link their OAuth provider
-    if (customer.auth_provider === "email") {
-      customer.auth_provider = authProvider;
-      customer.provider_id   = providerId;
-      if (profilePicture && !customer.profile_picture) {
-        customer.profile_picture = profilePicture;
-      }
-      await customer.save();
-    }
     return customer;
   }
 
-  // New customer — create with default role 2001
-  customer = await Customer.create({
-    first_name:      firstName,
-    last_name:       lastName,
-    email:           email || null,
+  if (email && emailVerified) {
+    const existingByEmail = await Customer.findOne({ email });
+
+    if (existingByEmail) {
+      existingByEmail.auth_provider = "google";
+      existingByEmail.provider_id   = providerId;
+
+      if (profile.photos?.[0]?.value && !existingByEmail.profile_picture) {
+        existingByEmail.profile_picture = profile.photos[0].value;
+      }
+
+      await existingByEmail.save();
+      return existingByEmail;
+    }
+  }
+
+  const newCustomer = await Customer.create({
+    first_name:      profile.name?.givenName  || "",
+    last_name:       profile.name?.familyName || "",
+    email:           email,
     password:        null,
-    profile_picture: profilePicture || null,
-    auth_provider:   authProvider,
+    profile_picture: profile.photos?.[0]?.value || null,
+    auth_provider:   "google",
     provider_id:     providerId,
     role:            2001,
   });
 
-  return customer;
+  return newCustomer;
 };
 
-// ─── Google ───────────────────────────────────────────────────────────────────
 passport.use(
   new GoogleStrategy(
     {
@@ -54,41 +62,7 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        const customer = await findOrCreateUser({
-          email:          profile.emails?.[0]?.value,
-          firstName:      profile.name?.givenName  || "",
-          lastName:       profile.name?.familyName || "",
-          profilePicture: profile.photos?.[0]?.value || null,
-          providerId:     profile.id,
-          authProvider:   "google",
-        });
-        return done(null, customer);
-      } catch (error) {
-        return done(error, null);
-      }
-    }
-  )
-);
-
-// ─── Facebook ─────────────────────────────────────────────────────────────────
-passport.use(
-  new FacebookStrategy(
-    {
-      clientID:      process.env.FACEBOOK_APP_ID,
-      clientSecret:  process.env.FACEBOOK_APP_SECRET,
-      callbackURL:   process.env.FACEBOOK_CALLBACK_URL,
-      profileFields: ["id", "emails", "name", "picture.type(large)"],
-    },
-    async (accessToken, refreshToken, profile, done) => {
-      try {
-        const customer = await findOrCreateUser({
-          email:          profile.emails?.[0]?.value || null,
-          firstName:      profile.name?.givenName  || "",
-          lastName:       profile.name?.familyName || "",
-          profilePicture: profile.photos?.[0]?.value || null,
-          providerId:     profile.id,
-          authProvider:   "facebook",
-        });
+        const customer = await findOrCreateGoogleUser(profile);
         return done(null, customer);
       } catch (error) {
         return done(error, null);
@@ -98,8 +72,7 @@ passport.use(
 );
 
 
-// ─── Session (minimal — JWT-based, session: false used in routes) ─────────────
-passport.serializeUser((customer, done)       => done(null, customer._id));
+passport.serializeUser((customer, done) => done(null, customer._id));
 passport.deserializeUser(async (id, done) => {
   try {
     const customer = await Customer.findById(id);

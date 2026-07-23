@@ -15,6 +15,9 @@ const CustomerSchema = new Schema(
     email: {
       type: String,
       required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
     },
     password: {
       type: String,
@@ -54,7 +57,7 @@ const CustomerSchema = new Schema(
     },
     auth_provider: {
       type: String,
-      enum: ["email", "google", "facebook", "apple"],
+      enum: ["email", "google"],
       default: "email",
     },
     provider_id: {

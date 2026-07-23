@@ -19,8 +19,6 @@ const {
   updateMarketRepProfile,
   googleAuth,
   googleCallback,
-  facebookAuth,
-  facebookCallback,
 } = require("../controllers/customer.controller");
 const {
   getCustomerCount,
@@ -66,10 +64,6 @@ const CustomerRouter = (io) => {
   //google auth
   router.get("/auth/google", googleAuth);
   router.get("/auth/google/callback", googleCallback);
-
-  //Facebook auth 
-  router.get("/auth/facebook", facebookAuth);
-  router.get("/auth/facebook/callback", facebookCallback);
 
   return router;
 };
