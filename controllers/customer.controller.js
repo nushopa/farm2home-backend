@@ -11,7 +11,6 @@ const BlacklistedToken = require("../models/BlacklistedToken");
 const { Resend } = require("resend");
 const passport = require("../config/passport");
 const crypto = require("crypto");
-
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 module.exports.createAccount = async (io, req, res, next) => {
