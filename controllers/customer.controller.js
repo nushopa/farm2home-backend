@@ -10,6 +10,7 @@ const TempUser = require("../models/tempUser");
 const BlacklistedToken = require("../models/BlacklistedToken");
 const { Resend } = require("resend");
 const passport = require("../config/passport");
+const crypto = require("crypto");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -577,13 +578,15 @@ module.exports.logoutUser = async (req, res, next) => {
 };
 
 module.exports.googleAuth = (req, res, next) => {
-  const state = crypto.randomBytes(16).toString("hex");
+  const platform = req.query.platform === "mobile" ? "mobile" : "web";
+  const csrfToken = crypto.randomBytes(16).toString("hex");
+  const state = Buffer.from(JSON.stringify({ csrfToken, platform })).toString("base64url");
 
-  res.cookie("google_oauth_state", state, {
+  res.cookie("google_oauth_state", csrfToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 5 * 60 * 1000, // 5 minutes, plenty for the redirect round-trip
+    maxAge: 5 * 60 * 1000,
   });
 
   passport.authenticate("google", {
@@ -595,16 +598,36 @@ module.exports.googleAuth = (req, res, next) => {
 module.exports.googleCallback = (req, res, next) => {
   passport.authenticate("google", { session: false }, async (err, customer) => {
     try {
-      const returnedState = req.query.state;
-      const savedState = req.cookies?.google_oauth_state;
+      const returnedStateRaw = req.query.state;
+      const savedCsrfToken = req.cookies?.google_oauth_state;
       res.clearCookie("google_oauth_state");
 
-      if (!returnedState || !savedState || returnedState !== savedState) {
-        return res.redirect(`${process.env.FRONTEND_URL}/login?error=invalid_state`);
+      let platform = "web";
+      let returnedCsrfToken;
+
+      try {
+        const decoded = JSON.parse(Buffer.from(returnedStateRaw, "base64url").toString());
+        platform = decoded.platform === "mobile" ? "mobile" : "web";
+        returnedCsrfToken = decoded.csrfToken;
+      } catch {
+        // malformed state — treat as invalid below
+      }
+
+      const isValidState = returnedCsrfToken && savedCsrfToken && returnedCsrfToken === savedCsrfToken;
+
+      const redirectWithError = (message) => {
+        if (platform === "mobile") {
+          return res.redirect(`${process.env.APP_SCHEME}://auth-callback?error=${message}`);
+        }
+        return res.redirect(`${process.env.FRONTEND_URL}/auth/callback?error=${message}`);
+      };
+
+      if (!isValidState) {
+        return redirectWithError("invalid_state");
       }
 
       if (err || !customer) {
-        return res.redirect(`${process.env.FRONTEND_URL}/login?error=google_auth_failed`);
+        return redirectWithError("google_auth_failed");
       }
 
       const token = jwt.sign(
@@ -613,14 +636,13 @@ module.exports.googleCallback = (req, res, next) => {
         { expiresIn: "7d" }
       );
 
-      res.cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days, matches JWT expiry
-      });
+      if (platform === "mobile") {
+        return res.redirect(`${process.env.APP_SCHEME}://auth-callback?token=${token}`);
+      }
 
-      return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
+      // Web: token passed via redirect URL, matching the existing
+      // localStorage + Bearer-header pattern used by email/password login.
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
     } catch (error) {
       next(error);
     }
