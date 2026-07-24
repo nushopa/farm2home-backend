@@ -641,7 +641,7 @@ module.exports.googleCallback = (req, res, next) => {
 
       // Web: token passed via redirect URL, matching the existing
       // localStorage + Bearer-header pattern used by email/password login.
-      return res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
+      return res.redirect(`${process.env.F_URL}/auth/callback?token=${token}`);
     } catch (error) {
       next(error);
     }
