@@ -8,6 +8,7 @@ const express = require("express");
 const { createServer } = require("http");
 const helmet = require("helmet");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const path = require("path");
 const passport = require("./config/passport");
 const connectDB = require("./config/db");
@@ -18,12 +19,18 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3000;
 
+// Render (and most PaaS providers) sit behind a reverse proxy that
+// terminates TLS. This makes req.protocol / req.secure and secure
+// cookies behave correctly.
+app.set("trust proxy", 1);
+
 // =============================================
 // ✅ MIDDLEWARE — must come BEFORE routes
 // =============================================
 
 app.use(cors());
 app.use(helmet());
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "10mb" }));                      
 app.use(express.urlencoded({ limit: "10mb", extended: true }));  
