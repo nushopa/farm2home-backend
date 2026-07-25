@@ -372,26 +372,20 @@ module.exports.forgetPassword = async (req, res, next) => {
     });
 
     await forgetInstance.save();
+    
+    let subject = "Your Nushopa Password Reset Code";
+    let emailFileName = "forgotPasswordTemp";
+    const dataDetails = {
+      first_name: exitMail.first_name,
+      email: exitMail.email,
+      otp,
+    };
 
-    const savedOtp = await Forget.findOne({ user_id: exitMail._id });
+    await sendEmail(exitMail.email, dataDetails, subject, emailFileName);
 
-    const { data, error } = await resend.emails.send({
-      from: "onboarding@resend.dev",
-      to: exitMail.email,
-      subject: "Confirmation code ✔",
-      text: `Your Nushopa password reset code is: ${otp}\n\nThis code expires in 10 minutes. If you did not request a password reset, please ignore this email.`,
-    });
-
-    if (error) {
-      console.error("Resend error:", error);
-      return res.status(400).send({
-        message: "An error occurred!"
-      });
-    }
-
-    return res.status(200).send(true);
-
+    return res.status(200).send({ success: true, message: "Reset code sent to your email." });
   } catch (error) {
+    console.error("forgetPassword error:", error);
     next(error);
   }
 };
