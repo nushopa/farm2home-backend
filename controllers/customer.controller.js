@@ -349,6 +349,98 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
   }
 };
 
+module.exports.updateDistributorStatus = async (io, req, res, next) => {
+  try {
+    authMiddleware(req, res, async () => {
+      const { role } = req.role;
+
+      if (role === 2001) {
+        return res.status(401).send({
+          message: "You are not authorized to access this route",
+        });
+      }
+
+      const { id } = req.params;
+      const { status, reason } = req.body;
+
+      const allowedStatuses = ["approved", "rejected", "pending"];
+      if (!status || !allowedStatuses.includes(status)) {
+        return res.status(400).send({
+          message: `Status must be one of: ${allowedStatuses.join(", ")}`,
+        });
+      }
+
+      const distributor = await Customer.findOne({ _id: id, role: 6000 });
+
+      if (!distributor) {
+        return res.status(404).send({ message: "Distributor not found!" });
+      }
+
+      // Guard: don't allow approving an incomplete profile
+      if (status === "approved" && !distributor.profile_completed) {
+        return res.status(400).send({
+          message: "Cannot approve a distributor with an incomplete profile.",
+        });
+      }
+
+      distributor.status = status;
+      await distributor.save();
+
+      const { password, ...profileData } = distributor.toObject();
+
+      // --- Email notification ---
+      try {
+        const isApproved = status === "approved";
+        const subject = isApproved
+          ? "Your Nushopa Distributor Account Has Been Approved"
+          : "Update on Your Nushopa Distributor Application";
+        const emailFileName = isApproved
+          ? "distributorApprovedTemp"
+          : "distributorRejectedTemp";
+
+        const dataDetails = {
+          first_name: distributor.first_name,
+          last_name: distributor.last_name,
+          email: distributor.email,
+          reason: reason || null, // optional rejection reason
+        };
+
+        await sendEmail(distributor.email, dataDetails, subject, emailFileName);
+      } catch (emailErr) {
+        // Don't fail the whole request if email sending fails —
+        // log it, but the status update itself already succeeded.
+        console.error("Failed to send status-update email:", emailErr);
+      }
+
+      // --- In-app notification ---
+      try {
+        await Notification.create({
+          title:
+            status === "approved"
+              ? "Distributor account approved"
+              : "Distributor account rejected",
+          full_name: `${distributor.first_name.trim()} ${distributor.last_name.trim()}`,
+          category: "distributor-status-update",
+        });
+
+        const notifications = await Notification.find();
+        io.emit("notification", notifications);
+      } catch (notifErr) {
+        console.error("Failed to create/broadcast notification:", notifErr);
+      }
+
+      return res.status(200).send({
+        success: true,
+        message: `Distributor ${status} successfully`,
+        distributor: profileData,
+      });
+    });
+  } catch (error) {
+    console.error("Update Distributor Status Error:", error);
+    next(error);
+  }
+};
+
 module.exports.deleteCustomer = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {

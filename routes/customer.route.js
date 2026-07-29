@@ -4,7 +4,7 @@ const {
   loginUser,
   getAllCustomers,
   getAllDistributors,
-  getSingleDistributor,      // ← ADD THIS LINE
+  getSingleDistributor,   
   updateProfile,
   getSingleCustomer,
   deleteCustomer,
@@ -19,6 +19,7 @@ const {
   updateMarketRepProfile,
   googleAuth,
   googleCallback,
+  updateDistributorStatus,
 } = require("../controllers/customer.controller");
 const {
   getCustomerCount,
@@ -54,7 +55,9 @@ const CustomerRouter = (io) => {
   // ✅ Distributor routes BEFORE /customers/:id
   router.get("/customers/distributors", getAllDistributors);
   router.get("/customers/distributors/:id", getSingleDistributor); // ← must come before /:id
-
+router.patch("/customers/distributors/:id/status", (req, res, next) =>
+    updateDistributorStatus(io, req, res, next)
+  );
   // ✅ Wildcard routes LAST
   router.get("/customers", getAllCustomers);
   router.get("/customers/:id", getSingleCustomer); // ← wildcard, goes last
