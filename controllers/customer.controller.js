@@ -271,6 +271,18 @@ module.exports.updateProfile = async (req, res, next) => {
   }
 };
 
+
+const isMarketRepProfileComplete = (marketRep) => {
+  return !!(
+    marketRep.city &&
+    marketRep.address &&
+    marketRep.state &&
+    marketRep.id_type &&
+    marketRep.date_of_birth &&
+    marketRep.proof_Of_Identity
+  );
+};
+
 module.exports.updateMarketRepProfile = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
@@ -291,17 +303,27 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
         });
       }
 
-      const { city, address, date_of_birth, profile_picture, proof_Of_Identity } = req.body;
+      const {  city,
+        address,
+        date_of_birth,
+        state,
+        id_type,
+        profile_picture,
+        proof_of_identity, } = req.body;
 
       if (city !== undefined) marketRep.city = city?.trim() || null;
       if (address !== undefined) marketRep.address = address?.trim() || null;
       if (date_of_birth !== undefined) marketRep.date_of_birth = date_of_birth || null;
+      if (state !== undefined) marketRep.state = state?.trim() || null;
+      if (id_type !== undefined) marketRep.id_type = id_type?.trim() || null;
       if (profile_picture !== undefined) marketRep.profile_picture = profile_picture || null;
-      if (proof_Of_Identity !== undefined) marketRep.proof_Of_Identity = proof_Of_Identity || null;
-
+      if (proof_of_identity !== undefined) marketRep.proof_Of_Identity = proof_of_identity || null;
+ 
       if (!marketRep.status || marketRep.status === "rejected") {
         marketRep.status = "pending";
       }
+
+      marketRep.profile_completed = isMarketRepProfileComplete(marketRep);
 
       await marketRep.save();
 

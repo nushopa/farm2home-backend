@@ -42,6 +42,16 @@ const CustomerSchema = new Schema(
       trim: true,
       default: null,
     },
+    state: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    id_type: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     proof_Of_Identity: {
       type: String,
       default: null,
@@ -71,6 +81,10 @@ const CustomerSchema = new Schema(
     date_of_birth: {
       type: Date,
       default: null,
+    },
+    profile_completed: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true },
