@@ -123,9 +123,16 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
     const notifications = await Notification.find();
     io.emit("notification", notifications);
 
+    const token = jwt.sign(
+      { userId: data._id, role: data.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
     res.status(201).send({
       message: "Account created successfully!",
-      data
+      data,
+      token,
     });
   } catch (error) {
     next(error);
@@ -293,6 +300,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
       }
 
       const marketRep = await Customer.findById(userId);
+      console.log("Decoded userId:", userId, "Found:", !!marketRep);
       if (!marketRep) {
         return res.status(404).send({ message: "Market representative not found!" });
       }
