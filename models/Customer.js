@@ -58,7 +58,7 @@ const CustomerSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "active", "suspended", "rejected", null],
+      enum: ["pending", "approved", "suspended", "rejected", null],
       default: null,
     },
     review: {
