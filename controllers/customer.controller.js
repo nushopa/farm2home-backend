@@ -129,11 +129,9 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
       { expiresIn: "7d" }
     );
 
-    const { password, createdAt, updatedAt, ...safeUser } = data._doc;
-
     res.status(201).send({
       message: "Account created successfully!",
-      user: safeUser,
+      data,
       token,
     });
   } catch (error) {
@@ -192,23 +190,22 @@ module.exports.loginUser = async (req, res, next) => {
       return res.status(400).send({ message: "Email or Password is required" });
 
     const userCheck = await Customer.findOne({ email });
-    if (!userCheck) {
+    if (userCheck) {
+      const verifyPassword = await bcrypt.compare(pass, userCheck.password);
+      if (verifyPassword) {
+        const token = jwt.sign(
+          { userId: userCheck._id, role: userCheck.role },
+          process.env.JWT_SECRET,
+          { expiresIn: "7d" }
+        );
+        const { password, createdAt, updatedAt, ...others } = userCheck._doc;
+        return res.status(200).send({ user: others, token });
+      } else {
+        return res.status(401).send({ message: "Invalid Email or password" });
+      }
+    } else {
       return res.status(401).send({ message: "Invalid Email or password" });
     }
-
-    const verifyPassword = await bcrypt.compare(pass, userCheck.password);
-    if (!verifyPassword) {
-      return res.status(401).send({ message: "Invalid Email or password" });
-    }
-
-    const token = jwt.sign(
-      { userId: userCheck._id, role: userCheck.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    const { password, createdAt, updatedAt, ...others } = userCheck._doc;
-    return res.status(200).send({ user: others, token });
   } catch (error) {
     next(error);
   }
@@ -220,18 +217,15 @@ module.exports.getAllCustomers = async (req, res, next) => {
 
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req;
+      const { role } = req.role;
       if (role === 2001)
         return res
           .status(401)
           .send({ message: "You are not authorized to access this route" });
-
       const customers = await Customer.find()
-        .select("-password")
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(parseInt(limit))
-        .lean();
+        .limit(parseInt(limit));
 
       const totalItems = await Customer.countDocuments();
 
@@ -249,21 +243,9 @@ module.exports.getAllCustomers = async (req, res, next) => {
 
 module.exports.getSingleCustomer = async (req, res, next) => {
   try {
-    authMiddleware(req, res, async () => {
-      const { id } = req.params;
-
-      // Only admins, or the user requesting their own record
-      if (req.role === 2001 && req.userId !== id) {
-        return res.status(403).send({ message: "Not authorized to view this profile" });
-      }
-
-      const customer = await Customer.findById(id).select("-password").lean();
-      if (!customer) {
-        return res.status(404).send({ message: "Customer not found!" });
-      }
-
-      return res.status(200).send({ customer });
-    });
+    let { id } = req.params;
+    const customer = await Customer.findById(id);
+    return res.status(200).send({ customer });
   } catch (error) {
     next(error);
   }
@@ -271,15 +253,10 @@ module.exports.getSingleCustomer = async (req, res, next) => {
 
 module.exports.updateProfile = async (req, res, next) => {
   try {
-    authMiddleware(req, res, async () => {
-      // id now comes from the verified token, never from the request body —
-      // previously this let any caller edit any customer by passing an id.
-      const customer = await Customer.findById(req.userId);
+    const { id } = req.body;
+    const customer = await Customer.findById(id);
 
-      if (!customer) {
-        return res.status(404).send({ message: "Customer not found!" });
-      }
-
+    if (customer) {
       customer.first_name = req.body.fname;
       customer.last_name = req.body.lname;
 
@@ -293,11 +270,14 @@ module.exports.updateProfile = async (req, res, next) => {
           .status(400)
           .send({ message: "An error occured please try again later" });
       }
-    });
+    } else {
+      return res.status(404).send({ message: "Customer not found!" });
+    }
   } catch (error) {
     next(error);
   }
 };
+
 
 const isMarketRepProfileComplete = (marketRep) => {
   return !!(
@@ -346,7 +326,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
       if (id_type !== undefined) marketRep.id_type = id_type?.trim() || null;
       if (profile_picture !== undefined) marketRep.profile_picture = profile_picture || null;
       if (proof_of_identity !== undefined) marketRep.proof_Of_Identity = proof_of_identity || null;
-
+ 
       if (!marketRep.status || marketRep.status === "rejected") {
         marketRep.status = "pending";
       }
@@ -372,7 +352,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
 module.exports.updateDistributorStatus = async (io, req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req;
+      const { role } = req.role;
 
       if (role === 2001) {
         return res.status(401).send({
@@ -396,6 +376,7 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
         return res.status(404).send({ message: "Distributor not found!" });
       }
 
+      // Guard: don't allow approving an incomplete profile
       if (status === "approved" && !distributor.profile_completed) {
         return res.status(400).send({
           message: "Cannot approve a distributor with an incomplete profile.",
@@ -407,6 +388,7 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
 
       const { password, ...profileData } = distributor.toObject();
 
+      // --- Email notification ---
       try {
         const isApproved = status === "approved";
         const subject = isApproved
@@ -420,14 +402,17 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
           first_name: distributor.first_name,
           last_name: distributor.last_name,
           email: distributor.email,
-          reason: reason || null,
+          reason: reason || null, // optional rejection reason
         };
 
         await sendEmail(distributor.email, dataDetails, subject, emailFileName);
       } catch (emailErr) {
+        // Don't fail the whole request if email sending fails —
+        // log it, but the status update itself already succeeded.
         console.error("Failed to send status-update email:", emailErr);
       }
 
+      // --- In-app notification ---
       try {
         await Notification.create({
           title:
@@ -459,7 +444,7 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
 module.exports.deleteCustomer = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req;
+      const { role } = req.role;
       if (role === 2001)
         return res
           .status(401)
@@ -509,7 +494,7 @@ module.exports.forgetPassword = async (req, res, next) => {
     });
 
     await forgetInstance.save();
-
+    
     let subject = "Your Nushopa Password Reset Code";
     let emailFileName = "forgotPasswordTemp";
     const dataDetails = {
@@ -613,7 +598,7 @@ module.exports.getAllDistributors = async (req, res, next) => {
 
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req;
+      const { role } = req.role;
       if (role === 2001) {
         return res.status(401).send({
           message: "You are not authorized to access this route"
@@ -681,6 +666,7 @@ module.exports.getProfileDetails = async (req, res, next) => {
         message: "Profile details retrieved successfully",
         customer
       });
+
     });
   } catch (error) {
     next(error);
@@ -769,8 +755,8 @@ module.exports.googleCallback = (req, res, next) => {
         return res.redirect(`${process.env.APP_SCHEME}://auth-callback?token=${token}`);
       }
 
-      // Web: token passed via redirect URL, matching the localStorage +
-      // Bearer-header pattern used by email/password login.
+      // Web: token passed via redirect URL, matching the existing
+      // localStorage + Bearer-header pattern used by email/password login.
       return res.redirect(`${process.env.F_URL}/auth/callback?token=${token}`);
     } catch (error) {
       next(error);
