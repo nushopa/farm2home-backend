@@ -278,7 +278,6 @@ module.exports.updateProfile = async (req, res, next) => {
   }
 };
 
-
 const isMarketRepProfileComplete = (marketRep) => {
   return !!(
     marketRep.city &&

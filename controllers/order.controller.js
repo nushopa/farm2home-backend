@@ -8,6 +8,7 @@ const { authMiddleware } = require("../middleware/authMiddleware");
 const crypto = require("crypto");
 const { sendOrderConfirmationEmail } = require("../lib/sendOrderEmail");
 const { sendOrderAssignedEmail } = require("../lib/sendAssignmentEmail");
+const { sendPushNotification } = require("../lib/util/sendPush");
 
 async function addOrder(io, req, res, next) {
   const { orderID, products, address, customer_id, amount_paid } = req.body;
@@ -116,6 +117,19 @@ async function addOrder(io, req, res, next) {
       );
     }
 
+    // --- Push notification to customer (transactional) ---
+    try {
+      await sendPushNotification({
+        userId: customer_id,
+        title: "Order placed! 🎉",
+        body: `Your order ${orderID} has been received and is being processed.`,
+        data: { type: "order-placed", orderId: orderID },
+        kind: "transactional",
+      });
+    } catch (pushErr) {
+      console.error("Failed to send order-placed push:", pushErr);
+    }
+
     res.status(200).send({ order, distributors });
   } catch (error) {
     console.error(error);
@@ -183,6 +197,34 @@ async function updateOrderStatus(req, res, next) {
 
     if (!order) {
       return res.status(404).send({ message: "Order not found." });
+    }
+
+    // --- Push notification (transactional) ---
+    // TODO: confirm these status strings match your actual Order status enum.
+    try {
+      const statusMessages = {
+        "Out for delivery": {
+          title: "Your order is on the way! 🚴",
+          body: "Your rider has picked up your order and is heading your way.",
+        },
+        "Delivered": {
+          title: "Order delivered ✅",
+          body: "Your order has arrived. Enjoy!",
+        },
+      };
+
+      const message = statusMessages[status];
+      if (message && order.customer_id) {
+        await sendPushNotification({
+          userId: order.customer_id,
+          title: message.title,
+          body: message.body,
+          data: { type: "order-status", orderId: order.orderID, status },
+          kind: "transactional",
+        });
+      }
+    } catch (pushErr) {
+      console.error("Failed to send order-status push:", pushErr);
     }
 
     res.status(200).send({ order });
@@ -260,6 +302,21 @@ async function signOrder(io, req, res, next) {
     const notifications = await Notification.find();
     io.emit("notification", notifications);
 
+    // --- Push notification to customer (transactional) ---
+    try {
+      if (order.customer_id) {
+        await sendPushNotification({
+          userId: order.customer_id,
+          title: "Order delivered ✅",
+          body: "Your order has arrived. Enjoy!",
+          data: { type: "order-status", orderId: orderID, status: "Delivered" },
+          kind: "transactional",
+        });
+      }
+    } catch (pushErr) {
+      console.error("Failed to send order-delivered push:", pushErr);
+    }
+
     res.status(200).send({ message: "Order signed successfully.", order });
   } catch (error) {
     console.error("Error signing order:", error);
@@ -316,6 +373,21 @@ async function assignOrder(io, req, res, next) {
         );
       } else {
         console.warn(`assignOrder: driver ${driver_id} not found; no email sent.`);
+      }
+
+      // --- Push notification to customer (transactional) ---
+      try {
+        if (order.customer_id) {
+          await sendPushNotification({
+            userId: order.customer_id,
+            title: "A rider has been assigned 🚴",
+            body: "Your order is being prepared for delivery.",
+            data: { type: "rider-assigned", orderId: order.orderID },
+            kind: "transactional",
+          });
+        }
+      } catch (pushErr) {
+        console.error("Failed to send rider-assigned push:", pushErr);
       }
     }
 

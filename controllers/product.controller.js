@@ -1,5 +1,6 @@
 const Product = require("../models/Product");
 const Cart = require("../models/Cart");
+const { sendPushNotification } = require("../lib/util/sendPush");
 
 module.exports.getAllProduct = async (req, res, next) => {
   try {
@@ -81,7 +82,7 @@ module.exports.addProduct = async (req, res, next) => {
 
     // upload image to cloudinary
     //const result = await cloudinary.uploader.upload(req.body.product_image)
-    await Product.create({
+    const newProduct = await Product.create({
       product_name,
       product_brand_name,
       product_image,
@@ -97,9 +98,23 @@ module.exports.addProduct = async (req, res, next) => {
       // Defaults to false in the schema if not provided, but respected if the
       // admin form explicitly sets a product as out of stock at creation time.
       out_of_stock: out_of_stock ?? false,
-    })
-      .then((data) => res.status(201).send({ data }))
-      .catch((error) => next("1", error));
+    });
+
+    // --- Push notification (marketing) ---
+    // Goes to every device with marketingPushEnabled on. Non-blocking:
+    // a push failure should never fail the product-creation request.
+    try {
+      await sendPushNotification({
+        title: "New product on Nushopa 🛍️",
+        body: `${newProduct.product_name} just landed — check it out!`,
+        data: { type: "new-product", productId: newProduct._id.toString() },
+        kind: "marketing",
+      });
+    } catch (pushErr) {
+      console.error("Failed to send new-product push:", pushErr);
+    }
+
+    return res.status(201).send({ data: newProduct });
   } catch (error) {
     next(error);
   }
@@ -140,9 +155,7 @@ module.exports.updateProduct = async (req, res, next) => {
   }
 };
 
-// Dedicated endpoint for the admin table's stock toggle. Keeps the intent
-// explicit (and lets you add side effects later, e.g. notifying customers
-// with the product in their cart) rather than overloading updateProduct.
+
 module.exports.toggleStock = async (req, res, next) => {
   try {
     const { id, out_of_stock } = req.body;
