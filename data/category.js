@@ -128,7 +128,7 @@ module.exports.agriculturalCategories = [
       ],
     },
     {
-      category: "Sugars and Starches",
+      category: "Sugars",
   
       subcategories: [
         {
@@ -138,7 +138,13 @@ module.exports.agriculturalCategories = [
         {
           name: "Beet Sugar",
           subsubcategories: [],
-        },
+        }
+      ],
+    },
+    {
+      category: "Starches",
+  
+      subcategories: [
         {
           name: "Potatoes",
           subsubcategories: [],
@@ -227,11 +233,6 @@ module.exports.agriculturalCategories = [
       ],
     },
     {
-      category: "Rubber",
-      subcategories: [],
-      subsubcategories: [],
-    },
-    {
       category: "Forage",
       subcategories: [
         {
@@ -250,21 +251,6 @@ module.exports.agriculturalCategories = [
       subsubcategories: [],
     },
     {
-      category: "Others",
-      subcategories: [],
-      subsubcategories: [],
-    },
-    {
-      category: "live stock",
-      subcategories: [],
-      subsubcategories: [],
-    },
-    {
-      category: "Green Manure",
-      subcategories: [],
-      subsubcategories: [],
-    },
-    {
       category: "Tuber",
       subcategories: [{
         name: "Potatoes",
@@ -277,9 +263,8 @@ module.exports.agriculturalCategories = [
      ],
       subsubcategories: [],
     },
-
-    {
-      category: "",
+ {
+      category: "Others",
       subcategories: [],
       subsubcategories: [],
     },
