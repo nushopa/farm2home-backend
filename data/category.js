@@ -156,7 +156,7 @@ module.exports.agriculturalCategories = [
       ],
     },
     {
-      category: "Fibres",
+      category: "Flour",
       subcategories: [
         {
           name: "Cotton",
@@ -182,19 +182,6 @@ module.exports.agriculturalCategories = [
         {
           name: "Coffee",
           subsubcategories: ["Arabica", "Robusta"],
-        },
-      ],
-    },
-    {
-      category: "Narcotics",
-      subcategories: [
-        {
-          name: "Opium Poppy",
-          subsubcategories: [],
-        },
-        {
-          name: "Coca",
-          subsubcategories: [],
         },
       ],
     },
@@ -231,24 +218,6 @@ module.exports.agriculturalCategories = [
           subsubcategories: [],
         },
       ],
-    },
-    {
-      category: "Forage",
-      subcategories: [
-        {
-          name: "Alfalfa",
-          subsubcategories: [],
-        },
-        {
-          name: "Clover",
-          subsubcategories: [],
-        },
-        {
-          name: "Fescue",
-          subsubcategories: [],
-        },
-      ],
-      subsubcategories: [],
     },
     {
       category: "Tuber",
