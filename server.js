@@ -41,10 +41,11 @@ app.use(passport.initialize());
 // =============================================
 app.use(
   "/api-docs",
+  helmet({ contentSecurityPolicy: false }),
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpec, {
     explorer: true,
-    customSiteTitle: "Farm2Home API Docs",
+    customSiteTitle: "Nushopa API Docs",
   })
 );
 

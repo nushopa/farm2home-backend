@@ -1,13 +1,12 @@
 const { Router } = require("express");
 const passport    = require("passport");
 const multer      = require("multer");
-const rateLimit   = require("express-rate-limit"); 
+const rateLimit   = require("express-rate-limit");
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// ─── Rate limiters (Bug 8 fix) ────────────────────────────────────────────────
 const otpRequestLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max:      5,
   message:  { message: "Too many OTP requests. Please try again in 15 minutes." },
   standardHeaders: true,
@@ -22,7 +21,6 @@ const otpVerifyLimiter = rateLimit({
   legacyHeaders:   false,
 });
 
-// ─── Market controllers ───────────────────────────────────────────────────────
 const {
   addMarket,
   getAllMarkets,
@@ -31,12 +29,11 @@ const {
   getMarketById,
 } = require("../controllers/marketplace.controller");
 
-// ─── Distributor — Auth controllers ──────────────────────────────────────────
 const {
-  initialRegistration,   // Step 1
-  requestOTP,            // Step 2
-  verifyOTP,             // Step 3
-  createMarketRepAccount, // Step 4
+  initialRegistration,
+  requestOTP,
+  verifyOTP,
+  createMarketRepAccount,
   completeOAuthProfile,
 } = require("../controllers/marketRep/create.controller");
 
@@ -45,7 +42,6 @@ const {
   oauthCallback,
 } = require("../controllers/marketRep/login.controller");
 
-// ─── Distributor — CRUD controllers ──────────────────────────────────────────
 const {
   getAllDistributors,
   getDistributorById,
@@ -60,42 +56,253 @@ const {
   deleteDistributor,
 } = require("../controllers/marketRep/deleteDistributor.controller");
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
 const { authMiddleware } = require("../middleware/authMiddleware");
+
+/**
+ * @swagger
+ * tags:
+ *   - name: Markets
+ *     description: Physical market/location management
+ *   - name: MarketRep Auth
+ *     description: Distributor (market rep) 4-step registration + OAuth
+ *   - name: MarketRep CRUD
+ *     description: Distributor account management
+ */
 
 const MarketplaceRouters = (io) => {
   const MarketplaceRouter = Router();
 
-  // ── Market Routes ────────────────────────────────────────────────────────
-  MarketplaceRouter.post("/add-market",          addMarket);
-  MarketplaceRouter.get("/market",               getAllMarkets);
-  MarketplaceRouter.get("/market/:id",           getMarketById);
-  MarketplaceRouter.put("/market",               editMarket);
+  /**
+   * @swagger
+   * /marketplace/add-market:
+   *   post:
+   *     summary: Add a market
+   *     tags: [Markets]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [name, city]
+   *             properties:
+   *               name: { type: string }
+   *               city: { type: string }
+   *     responses:
+   *       201:
+   *         description: Market created
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data: { $ref: '#/components/schemas/Market' }
+   *       400: { description: Market already exists in this city }
+   */
+  MarketplaceRouter.post("/add-market", addMarket);
+
+  /**
+   * @swagger
+   * /marketplace/market:
+   *   get:
+   *     summary: List all markets (paginated, staff only)
+   *     tags: [Markets]
+   *     security: [{ bearerAuth: [] }]
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema: { type: integer, default: 1 }
+   *       - in: query
+   *         name: limit
+   *         schema: { type: integer, default: 20 }
+   *     responses:
+   *       200: { description: Paginated market list }
+   *       401: { description: Not authorized }
+   *   put:
+   *     summary: Edit a market
+   *     tags: [Markets]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [id]
+   *             properties:
+   *               id: { type: string }
+   *     responses:
+   *       200:
+   *         description: Market updated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data: { $ref: '#/components/schemas/Market' }
+   *       404: { description: Market not found }
+   */
+  MarketplaceRouter.get("/market", getAllMarkets);
+  MarketplaceRouter.put("/market", editMarket);
+
+  /**
+   * @swagger
+   * /marketplace/market/{id}:
+   *   get:
+   *     summary: Get a single market by ID
+   *     tags: [Markets]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200:
+   *         description: Market found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data: { $ref: '#/components/schemas/Market' }
+   *       404: { description: Market not found }
+   */
+  MarketplaceRouter.get("/market/:id", getMarketById);
+
+  /**
+   * @swagger
+   * /marketplace/delete-market/{id}:
+   *   delete:
+   *     summary: Delete a market
+   *     tags: [Markets]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Market deleted successfully }
+   *       404: { description: Market not found }
+   */
   MarketplaceRouter.delete("/delete-market/:id", deleteMarket);
 
-  // ── Distributor Email Auth — correct order: 1 → 2 → 3 → 4 ──────────────
+  /**
+   * @swagger
+   * /marketplace/distributor/initial-registration:
+   *   post:
+   *     summary: "Distributor registration — Step 1: name + password"
+   *     tags: [MarketRep Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *     responses:
+   *       200: { description: Initial registration saved }
+   */
+  MarketplaceRouter.post("/distributor/initial-registration", initialRegistration);
+
+  /**
+   * @swagger
+   * /marketplace/distributor/request-otp:
+   *   post:
+   *     summary: "Distributor registration — Step 2: send OTP (rate limited: 5 / 15 min)"
+   *     tags: [MarketRep Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               email: { type: string }
+   *     responses:
+   *       200: { description: OTP sent }
+   *       429: { description: Too many OTP requests }
+   */
+  MarketplaceRouter.post("/distributor/request-otp", otpRequestLimiter, requestOTP);
+
+  /**
+   * @swagger
+   * /marketplace/distributor/verify-otp:
+   *   post:
+   *     summary: "Distributor registration — Step 3: verify OTP (rate limited: 10 / 15 min)"
+   *     tags: [MarketRep Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               email: { type: string }
+   *               otp: { type: string }
+   *     responses:
+   *       200: { description: OTP verified }
+   *       429: { description: Too many OTP attempts }
+   */
+  MarketplaceRouter.post("/distributor/verify-otp", otpVerifyLimiter, verifyOTP);
+
+  /**
+   * @swagger
+   * /marketplace/distributor/register:
+   *   post:
+   *     summary: "Distributor registration — Step 4: create the account"
+   *     tags: [MarketRep Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               picture: { type: string, format: binary }
+   *     responses:
+   *       201: { description: Distributor account created }
+   */
   MarketplaceRouter.post(
-    "/distributor/initial-registration",        // Step 1: save name + password
-    initialRegistration
-  );
-  MarketplaceRouter.post(
-    "/distributor/request-otp",                 // Step 2: send OTP
-    otpRequestLimiter,
-    requestOTP
-  );
-  MarketplaceRouter.post(
-    "/distributor/verify-otp",                  // Step 3: verify OTP
-    otpVerifyLimiter,
-    verifyOTP
-  );
-  MarketplaceRouter.post(
-    "/distributor/register",                    // Step 4: create Distributor doc
+    "/distributor/register",
     upload.single("picture"),
     (req, res, next) => createMarketRepAccount(io, req, res, next)
   );
+
+  /**
+   * @swagger
+   * /marketplace/distributor/login:
+   *   post:
+   *     summary: Distributor login
+   *     tags: [MarketRep Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [email, password]
+   *             properties:
+   *               email: { type: string }
+   *               password: { type: string }
+   *     responses:
+   *       200: { description: Logged in }
+   *       401: { description: Invalid credentials }
+   */
   MarketplaceRouter.post("/distributor/login", signIn);
 
-  // ── Google OAuth ─────────────────────────────────────────────────────────
+  /**
+   * @swagger
+   * /marketplace/distributor/auth/google:
+   *   get:
+   *     summary: Start Google OAuth for a distributor
+   *     tags: [MarketRep Auth]
+   *     responses:
+   *       302: { description: Redirects to Google }
+   * /marketplace/distributor/auth/google/callback:
+   *   get:
+   *     summary: Google OAuth callback for a distributor
+   *     tags: [MarketRep Auth]
+   *     responses:
+   *       302: { description: Redirects back with a token or error }
+   */
   MarketplaceRouter.get(
     "/distributor/auth/google",
     passport.authenticate("google", { scope: ["profile", "email"], session: false })
@@ -109,7 +316,21 @@ const MarketplaceRouters = (io) => {
     oauthCallback
   );
 
-  // ── Facebook OAuth ───────────────────────────────────────────────────────
+  /**
+   * @swagger
+   * /marketplace/distributor/auth/facebook:
+   *   get:
+   *     summary: Start Facebook OAuth for a distributor
+   *     tags: [MarketRep Auth]
+   *     responses:
+   *       302: { description: Redirects to Facebook }
+   * /marketplace/distributor/auth/facebook/callback:
+   *   get:
+   *     summary: Facebook OAuth callback for a distributor
+   *     tags: [MarketRep Auth]
+   *     responses:
+   *       302: { description: Redirects back with a token or error }
+   */
   MarketplaceRouter.get(
     "/distributor/auth/facebook",
     passport.authenticate("facebook", { scope: ["email"], session: false })
@@ -123,7 +344,25 @@ const MarketplaceRouters = (io) => {
     oauthCallback
   );
 
-  // ── Complete OAuth Profile ────────────────────────────────────────────────
+  /**
+   * @swagger
+   * /marketplace/distributor/auth/complete-profile:
+   *   post:
+   *     summary: Complete a distributor's profile after OAuth sign-up
+   *     tags: [MarketRep Auth]
+   *     security: [{ bearerAuth: [] }]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               picture: { type: string, format: binary }
+   *     responses:
+   *       200: { description: Profile completed }
+   *       401: { description: Unauthorized }
+   */
   MarketplaceRouter.post(
     "/distributor/auth/complete-profile",
     authMiddleware,
@@ -131,13 +370,88 @@ const MarketplaceRouters = (io) => {
     (req, res, next) => completeOAuthProfile(io, req, res, next)
   );
 
-  // ── Distributor CRUD ─────────────────────────────────────────────────────
-  MarketplaceRouter.get("/distributors",             authMiddleware, getAllDistributors);
-  MarketplaceRouter.get("/distributor/:id",          authMiddleware, getDistributorById);
-  MarketplaceRouter.put("/distributor/:id",          authMiddleware, editDistributor);
+  /**
+   * @swagger
+   * /marketplace/distributors:
+   *   get:
+   *     summary: List all distributors
+   *     tags: [MarketRep CRUD]
+   *     security: [{ bearerAuth: [] }]
+   *     responses:
+   *       200: { description: Distributor list }
+   *       401: { description: Unauthorized }
+   */
+  MarketplaceRouter.get("/distributors", authMiddleware, getAllDistributors);
+
+  /**
+   * @swagger
+   * /marketplace/distributor/{id}:
+   *   get:
+   *     summary: Get a distributor by ID
+   *     tags: [MarketRep CRUD]
+   *     security: [{ bearerAuth: [] }]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Distributor found }
+   *       401: { description: Unauthorized }
+   *       404: { description: Not found }
+   *   put:
+   *     summary: Edit a distributor
+   *     tags: [MarketRep CRUD]
+   *     security: [{ bearerAuth: [] }]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Distributor updated }
+   *       401: { description: Unauthorized }
+   *   delete:
+   *     summary: Delete a distributor
+   *     tags: [MarketRep CRUD]
+   *     security: [{ bearerAuth: [] }]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Distributor deleted }
+   *       401: { description: Unauthorized }
+   */
+  MarketplaceRouter.get("/distributor/:id", authMiddleware, getDistributorById);
+  MarketplaceRouter.put("/distributor/:id", authMiddleware, editDistributor);
+  MarketplaceRouter.delete("/distributor/:id", authMiddleware, deleteDistributor);
+
+  /**
+   * @swagger
+   * /marketplace/distributor/{id}/review:
+   *   patch:
+   *     summary: Update a distributor's review status
+   *     tags: [MarketRep CRUD]
+   *     security: [{ bearerAuth: [] }]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               review: { type: boolean }
+   *     responses:
+   *       200: { description: Review status updated }
+   *       401: { description: Unauthorized }
+   */
   MarketplaceRouter.patch("/distributor/:id/review", authMiddleware, updateDistributorReviewStatus);
-  MarketplaceRouter.delete("/distributor/:id",       authMiddleware, deleteDistributor);
-  
 
   return MarketplaceRouter;
 };

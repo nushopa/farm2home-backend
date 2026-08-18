@@ -24,7 +24,6 @@ const getAllNotifications = async (io, res) => {
 };
 
 
-
 // Emit targeted notification to a specific market rep's room only
 const emitMarketRepNotification = (io, distributorId, notification) => {
   io.to(`marketrep_${distributorId}`).emit("marketrep_notification", notification);

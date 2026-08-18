@@ -16,5 +16,3 @@ module.exports.deleteDriver = async (req, res, next) => {
       next(error);
     }
   };
-  
-  
