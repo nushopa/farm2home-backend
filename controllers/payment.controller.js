@@ -1,14 +1,13 @@
 const crypto = require("crypto");
 const axios = require("axios");
 const Order = require("../models/Order");
-const PendingOrder = require("../models/PendingOrder"); // new model, see below
+const PendingOrder = require("../models/PendingOrder");
 const Cart = require("../models/Cart");
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const DELIVERY_FEE = 1800;
 const SERVICE_CHARGE_RATE = 0.15;
 
-// 1. Frontend calls this BEFORE opening the Paystack popup.
 async function initializeTransaction(req, res) {
   const { customer_id, address, email } = req.body;
   if (!customer_id || !address || !email) {
@@ -21,17 +20,22 @@ async function initializeTransaction(req, res) {
       return res.status(400).send({ message: "Cart is empty." });
     }
 
-    // Never trust a client-supplied total.
     const subtotal = cartItems.reduce(
       (sum, item) => sum + item.product_id.product_price * item.product_quatity,
       0
     );
-    const amount = Math.round(subtotal + DELIVERY_FEE + subtotal * SERVICE_CHARGE_RATE);
+
+    const subservice = Math.round(subtotal * SERVICE_CHARGE_RATE);
+    
+    const amount = Math.round(subtotal + DELIVERY_FEE + subservice);
 
     const pending = await PendingOrder.create({
       customer_id,
       address,
-      products: cartItems,
+      products: cartItems.map((item) => ({
+        product_id: item.product_id._id,
+        product_quatity: item.product_quatity,
+      })),
       amount,
       status: "pending",
     });
@@ -40,7 +44,7 @@ async function initializeTransaction(req, res) {
       "https://api.paystack.co/transaction/initialize",
       {
         email,
-        amount: amount * 100, // kobo
+        amount: amount * 100,
         reference: pending._id.toString(),
       },
       { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
@@ -57,19 +61,25 @@ async function initializeTransaction(req, res) {
   }
 }
 
-// 2. Paystack calls this server-to-server. Works for every channel.
+// Called by Paystack's servers, not the browser.
 async function paystackWebhook(req, res) {
   const signature = req.headers["x-paystack-signature"];
+
+  if (!req.rawBody) {
+    console.error("paystackWebhook: req.rawBody missing — check express.json() verify hook in server.js.");
+    return res.status(500).send("Server misconfiguration");
+  }
+
   const expected = crypto
     .createHmac("sha512", PAYSTACK_SECRET_KEY)
-    .update(req.body) // raw Buffer — see route note below
+    .update(req.rawBody)
     .digest("hex");
 
   if (signature !== expected) {
     return res.status(401).send("Invalid signature");
   }
 
-  const event = JSON.parse(req.body.toString());
+  const event = req.body; // already parsed by express.json()
 
   if (event.event === "charge.success") {
     try {
@@ -79,13 +89,12 @@ async function paystackWebhook(req, res) {
     }
   }
 
-  return res.sendStatus(200); // ack quickly regardless
+  return res.sendStatus(200);
 }
 
-// Idempotent — safe to call from the webhook AND from a client "check status" hit.
 async function fulfillOrder(reference, verifiedAmountKobo, status) {
   const existingOrder = await Order.findOne({ orderID: reference });
-  if (existingOrder) return existingOrder; // already handled
+  if (existingOrder) return existingOrder;
 
   const pending = await PendingOrder.findById(reference);
   if (!pending) throw new Error(`No pending order for reference ${reference}`);
@@ -98,7 +107,6 @@ async function fulfillOrder(reference, verifiedAmountKobo, status) {
 
   if (verifiedAmountKobo !== pending.amount * 100) {
     console.error(`Amount mismatch for ${reference} — flagging for review`);
-    // handle as you see fit — don't silently trust it
   }
 
   const deliveryCode = crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -119,15 +127,20 @@ async function fulfillOrder(reference, verifiedAmountKobo, status) {
   return order;
 }
 
-// 3. Frontend polls this after the popup closes.
 async function getOrderStatus(req, res) {
   const { reference } = req.params;
-  const order = await Order.findOne({ orderID: reference });
-  if (order) return res.status(200).send({ status: "fulfilled", order });
+  try {
+    const order = await Order.findOne({ orderID: reference });
+    if (order) return res.status(200).send({ status: "fulfilled", order });
 
-  const pending = await PendingOrder.findById(reference);
-  if (!pending) return res.status(404).send({ status: "not_found" });
-  return res.status(200).send({ status: pending.status }); // "pending" | "failed"
+    const pending = await PendingOrder.findById(reference);
+    if (!pending) return res.status(404).send({ status: "not_found" });
+
+    return res.status(200).send({ status: pending.status });
+  } catch (error) {
+    console.error("getOrderStatus error:", error);
+    return res.status(500).send({ message: "Could not retrieve order status." });
+  }
 }
 
 module.exports = { initializeTransaction, paystackWebhook, getOrderStatus };
