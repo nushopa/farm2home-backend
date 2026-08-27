@@ -50,11 +50,11 @@ async function addAdress(req, res, next) {
         .catch(() =>
           res
             .status(422)
-            .send({ message: "An error occured please try again later!" })
+            .send({ message: "An error occured please try again later!" }),
         );
     })
     .catch(() =>
-      res.status(400).send({ message: "An unknown error occured..." })
+      res.status(400).send({ message: "An unknown error occured..." }),
     );
 }
 

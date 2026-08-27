@@ -32,8 +32,21 @@ app.use(cors());
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.json({ limit: "10mb" }));                      
-app.use(express.urlencoded({ limit: "10mb", extended: true }));  
+
+// `verify` captures the raw request bytes into req.rawBody BEFORE they're
+// parsed into req.body. Needed so the Paystack webhook can verify the
+// x-paystack-signature HMAC against the exact bytes Paystack sent — once
+// express.json() parses the body, those raw bytes are gone. This runs for
+// every request, but only costs a Buffer reference, so it's safe globally.
+app.use(
+  express.json({
+    limit: "10mb",
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(passport.initialize());
 
 // =============================================
@@ -70,7 +83,6 @@ const io = new Server(server, {
 
 io.on("connection", (socket) => {
 
-
   // Market rep joins their personal room
   socket.on("join_marketrep_room", (distributorId) => {
     if (!distributorId) {
@@ -81,7 +93,6 @@ io.on("connection", (socket) => {
     console.log(`Distributor ${distributorId} joined room marketrep_${distributorId}`);
   });
 
-  
   socket.on("joinRoom", async ({ orderID }) => {
     if (!orderID) {
       console.error("No orderID provided in joinRoom event.");
@@ -149,6 +160,9 @@ io.on("connection", (socket) => {
   });
 });
 
+// =============================================
+// 🧭 ROUTES
+// =============================================
 const CustomerRouter = require("./routes/customer.route");
 const ReviewRouter = require("./routes/review.route");
 const productRouter = require("./routes/product.router");
@@ -164,8 +178,10 @@ const MarketplaceRouter = require("./routes/marketplace.route");
 const DriverRouter = require("./routes/driver.route");
 const RepDashboardRouter = require("./routes/repDashboard.router");
 const AdvertRouter = require("./routes/advertRoutes");
-const ConsentRoute = require("./routes/consentRoutes"); 
+const ConsentRoute = require("./routes/consentRoutes");
 const deviceRouter = require("./routes/device.route");
+const PaymentRouter = require("./routes/payment.route");
+const WebhookRouter = require("./routes/webhook.route");
 
 app.use("/", CustomerRouter(io));
 app.use("/product", productRouter);
@@ -182,13 +198,15 @@ app.use("/review", ReviewRouter);
 app.use("/driver", DriverRouter(io));
 app.use("/marketrep", RepDashboardRouter(io));
 app.use("/adverts", AdvertRouter());
-app.use("/consent", ConsentRoute ());
+app.use("/consent", ConsentRoute());
 app.use("/device", deviceRouter());
+app.use("/payment", PaymentRouter());
+app.use("/webhook", WebhookRouter());
+
 // 404 fallback
 app.use((req, res) => {
   res.status(404).send("Page not found!");
 });
-
 
 if (process.env.NODE_ENV === "production") {
   console.log("🔒 Running in PRODUCTION mode");
@@ -206,7 +224,6 @@ connectDB()
       console.log(`📄 Swagger docs available at http://localhost:${PORT}/api-docs`);
     });
   })
-  
   .catch((error) => {
     console.error("Database connection error:", error);
     process.exit(1);
