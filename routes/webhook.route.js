@@ -17,9 +17,14 @@ const WebhookRouter = () => {
    *   post:
    *     summary: Paystack webhook — confirms payment and fulfills the order
    *     description: >
-   *       Called server-to-server by Paystack for transaction events (e.g. `charge.success`), for every payment
-   *       channel including bank transfer and USSD. Verifies the `x-paystack-signature` header against the raw
-   *       request body (captured globally in server.js as `req.rawBody`), then creates the Order and clears the cart.
+   *       Called server-to-server by Paystack for transaction events, for every payment channel including
+   *       hosted checkout, bank transfer, and USSD. Verifies the `x-paystack-signature` header against the
+   *       raw request body (captured globally in server.js as `req.rawBody`).
+   *
+   *       Handles two events: `charge.success` creates the Order and clears the cart. `bank.transfer.rejected`
+   *       (Pay with Transfer only — sent when the customer transfers the wrong amount or is flagged by
+   *       Paystack's fraud system, which triggers an automatic refund on Paystack's end) marks the
+   *       PendingOrder as failed.
    *     tags: [Webhooks]
    *     requestBody:
    *       required: true
