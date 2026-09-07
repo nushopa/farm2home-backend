@@ -10,7 +10,7 @@ const verifyMarketRep = async (distributorId) => {
   return customer;
 }
 
-// General notifications — emits to ALL connected clients (unchanged behaviour)
+
 const getAllNotifications = async (io, res) => {
   try {
     const notifications = await Notification.find().sort({ createdAt: -1 });

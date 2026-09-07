@@ -5,11 +5,9 @@ const PendingOrder = require("../models/PendingOrder");
 const Cart = require("../models/Cart");
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-const DELIVERY_FEE = 1800;
+const DELIVERY_FEE = 700;
 const SERVICE_CHARGE_RATE = 0.15;
 
-// Shared by both channels — computes the order total server-side so the
-// client never gets to dictate the amount charged.
 async function buildPendingOrder(customer_id, address) {
   const cartItems = await Cart.find({ customer_id }).populate("product_id");
   if (!cartItems.length) {
@@ -39,8 +37,6 @@ async function buildPendingOrder(customer_id, address) {
   return pending;
 }
 
-// Web checkout — hosted Paystack page (card, transfer, USSD, etc. all
-// selectable on Paystack's own UI, per your dashboard settings).
 async function initializeTransaction(req, res) {
   const { customer_id, address, email, callback_url } = req.body;
   if (!customer_id || !address || !email) {
@@ -56,9 +52,6 @@ async function initializeTransaction(req, res) {
       reference: pending._id.toString(),
     };
 
-    // Mobile passes its deep-link scheme so Paystack's hosted checkout
-    // redirects straight back into the app once the user finishes/cancels.
-    // Web omits this and keeps using the inline popup.
     if (callback_url) {
       paystackPayload.callback_url = callback_url;
     }
@@ -83,9 +76,6 @@ async function initializeTransaction(req, res) {
   }
 }
 
-// Mobile checkout — Pay with Transfer via the Charge API. Returns a
-// temporary account number for a native "Deposit" style UI instead of
-// redirecting anywhere.
 async function initializeBankTransferCharge(req, res) {
   const { customer_id, address, email } = req.body;
   if (!customer_id || !address || !email) {
@@ -132,7 +122,6 @@ async function initializeBankTransferCharge(req, res) {
   }
 }
 
-// Called by Paystack's servers, not the browser/app.
 async function paystackWebhook(req, res) {
   const signature = req.headers["x-paystack-signature"];
 
@@ -200,9 +189,7 @@ async function fulfillOrder(reference, verifiedAmountKobo, status) {
   return order;
 }
 
-// Customer sent the wrong amount, or was flagged by Paystack's fraud
-// system — Paystack auto-refunds on their end, we just mark it failed
-// so the app stops treating it as pending.
+
 async function rejectPendingTransfer(reference) {
   const pending = await PendingOrder.findById(reference);
   if (!pending) {
