@@ -799,6 +799,7 @@ module.exports.googleAuth = (req, res, next) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
+    path: "/",           // fixes the earlier path-mismatch so clearCookie actually works
     maxAge: 5 * 60 * 1000,
   });
 
@@ -813,7 +814,12 @@ module.exports.googleCallback = (req, res, next) => {
     try {
       const returnedStateRaw = req.query.state;
       const savedCsrfToken = req.cookies?.google_oauth_state;
-      res.clearCookie("google_oauth_state");
+      res.clearCookie("google_oauth_state", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+      });
 
       let platform = "web";
       let returnedCsrfToken;
@@ -829,27 +835,22 @@ module.exports.googleCallback = (req, res, next) => {
       const isValidState = returnedCsrfToken && savedCsrfToken && returnedCsrfToken === savedCsrfToken;
 
       const redirectWithError = (message) => {
+        const encoded = encodeURIComponent(message);
         if (platform === "mobile") {
-          return res.redirect(`${process.env.APP_SCHEME}://auth-callback?error=${message}`);
+          return res.redirect(`${process.env.APP_SCHEME}://auth-callback?error=${encoded}`);
         }
-        return res.redirect(`${process.env.FRONTEND_URL}/auth/callback?error=${message}`);
+        return res.redirect(`${process.env.F_URL}/auth/callback?error=${encoded}`);
       };
 
-      if (!isValidState) {
-        return redirectWithError("invalid_state");
-      }
+      if (!isValidState) return redirectWithError("invalid_state");
+      if (err || !customer) return redirectWithError("google_auth_failed");
 
-      if (err || !customer) {
-        return redirectWithError("google_auth_failed");
-      }
-
-      
       if (platform === "mobile") {
-       const mobileToken = signToken({ userId: customer._id, role: customer.role });
+        const mobileToken = signToken({ userId: customer._id, role: customer.role });
         return res.redirect(`${process.env.APP_SCHEME}://auth-callback?token=${mobileToken}`);
       }
 
-     res.cookie(TOKEN_COOKIE_NAME, signToken({ userId: customer._id, role: customer.role }), cookieOptions());
+      res.cookie(TOKEN_COOKIE_NAME, signToken({ userId: customer._id, role: customer.role }), cookieOptions());
       return res.redirect(`${process.env.F_URL}/auth/callback`);
     } catch (error) {
       next(error);
