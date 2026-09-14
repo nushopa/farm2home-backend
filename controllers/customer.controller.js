@@ -13,6 +13,70 @@ const passport = require("../config/passport");
 const crypto = require("crypto");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+
+const TOKEN_COOKIE_NAME = "token";
+const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TOKEN_TTL_JWT = "24h";
+const AUTH_HEADER_PREFIX = "Bearer ";
+
+const cookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  maxAge: TOKEN_TTL_MS,
+  path: "/",
+});
+
+const resolvePlatform = (req) => {
+  const p =
+    req.body?.platform ||
+    req.query?.platform ||
+    req.headers["x-client-platform"];
+  return p === "mobile" ? "mobile" : "web";
+};
+
+const signToken = ({ userId, role }) =>
+  jwt.sign({ userId, role }, process.env.JWT_SECRET, {
+    expiresIn: TOKEN_TTL_JWT,
+  });
+
+
+const issueAuth = (req, res, { userId, role }) => {
+  const platform = resolvePlatform(req);
+  const token = signToken({ userId, role });
+
+  if (platform === "mobile") {
+    return { platform, token };
+  }
+
+  res.cookie(TOKEN_COOKIE_NAME, token, cookieOptions());
+  return { platform, token: undefined };
+};
+
+const clearTokenCookie = (res) => {
+  res.clearCookie(TOKEN_COOKIE_NAME, { ...cookieOptions(), maxAge: undefined });
+};
+
+
+const getRequestToken = (req) => {
+  if (req.cookies?.[TOKEN_COOKIE_NAME]) return req.cookies[TOKEN_COOKIE_NAME];
+  const authHeader = req.headers["authorization"];
+  if (authHeader && authHeader.startsWith(AUTH_HEADER_PREFIX)) {
+    return authHeader.slice(AUTH_HEADER_PREFIX.length);
+  }
+  return null;
+};
+
+
+const killSession = async (req, res) => {
+  const token = getRequestToken(req);
+  if (token) {
+    await BlacklistedToken.create({ token });
+  }
+  clearTokenCookie(res); // harmless no-op for mobile clients that never had one
+  return token;
+};
+
 module.exports.createAccount = async (io, req, res, next) => {
   try {
     const { first_name, last_name, phone_number, email, password, role } =
@@ -123,17 +187,19 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
     const notifications = await Notification.find();
     io.emit("notification", notifications);
 
-    const token = jwt.sign(
-      { userId: data._id, role: data.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    // Web: httpOnly cookie only. Mobile: token returned in the body.
+    const { platform, token } = issueAuth(req, res, {
+      userId: data._id,
+      role: data.role,
+    });
 
-    res.status(201).send({
+    const responseBody = {
       message: "Account created successfully!",
       data,
-      token,
-    });
+    };
+    if (platform === "mobile") responseBody.token = token;
+
+    res.status(201).send(responseBody);
   } catch (error) {
     next(error);
   }
@@ -193,13 +259,15 @@ module.exports.loginUser = async (req, res, next) => {
     if (userCheck) {
       const verifyPassword = await bcrypt.compare(pass, userCheck.password);
       if (verifyPassword) {
-        const token = jwt.sign(
-          { userId: userCheck._id, role: userCheck.role },
-          process.env.JWT_SECRET,
-          { expiresIn: "7d" }
-        );
+        // Web: httpOnly cookie only. Mobile: token returned in the body.
+        const { platform, token } = issueAuth(req, res, {
+          userId: userCheck._id,
+          role: userCheck.role,
+        });
         const { password, createdAt, updatedAt, ...others } = userCheck._doc;
-        return res.status(200).send({ user: others, token });
+        const responseBody = { user: others };
+        if (platform === "mobile") responseBody.token = token;
+        return res.status(200).send(responseBody);
       } else {
         return res.status(401).send({ message: "Invalid Email or password" });
       }
@@ -217,7 +285,7 @@ module.exports.getAllCustomers = async (req, res, next) => {
 
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req.role;
+      const role = req.role;
       if (role === 2001)
         return res
           .status(401)
@@ -351,7 +419,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
 module.exports.updateDistributorStatus = async (io, req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req.role;
+      const role = req.role;
 
       if (role === 2001) {
         return res.status(401).send({
@@ -406,8 +474,6 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
 
         await sendEmail(distributor.email, dataDetails, subject, emailFileName);
       } catch (emailErr) {
-        // Don't fail the whole request if email sending fails —
-        // log it, but the status update itself already succeeded.
         console.error("Failed to send status-update email:", emailErr);
       }
 
@@ -440,10 +506,11 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
   }
 };
 
+// Admin-only: delete ANY customer by id.
 module.exports.deleteCustomer = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req.role;
+      const role = req.role;
       if (role === 2001)
         return res
           .status(401)
@@ -457,6 +524,37 @@ module.exports.deleteCustomer = async (req, res, next) => {
 
       await Customer.findByIdAndDelete(id);
       return res.status(200).send({ message: "Customer deleted successfully" });
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+module.exports.deleteOwnProfile = async (req, res, next) => {
+  try {
+    authMiddleware(req, res, async () => {
+      const { userId } = req;
+
+      if (!userId) {
+        return res.status(401).send({ message: "Unauthorized" });
+      }
+
+      const customer = await Customer.findById(userId);
+      if (!customer) {
+        return res.status(404).send({ message: "Customer not found!" });
+      }
+
+      await Customer.findByIdAndDelete(userId);
+
+      // Kill the session immediately: blacklist the current token and
+      // clear the cookie so it can't be reused after the account is gone.
+      await killSession(req, res);
+
+      return res.status(200).send({
+        success: true,
+        message: "Your account has been deleted successfully",
+      });
     });
   } catch (error) {
     next(error);
@@ -597,7 +695,7 @@ module.exports.getAllDistributors = async (req, res, next) => {
 
   try {
     authMiddleware(req, res, async () => {
-      const { role } = req.role;
+      const role = req.role;
       if (role === 2001) {
         return res.status(401).send({
           message: "You are not authorized to access this route"
@@ -674,13 +772,14 @@ module.exports.getProfileDetails = async (req, res, next) => {
 
 module.exports.logoutUser = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
+    
+    const token = getRequestToken(req);
 
     if (!token) {
-      return res.status(401).json({ message: "No token provided" });
+      return res.status(401).json({ message: "No active session" });
     }
 
-    await BlacklistedToken.create({ token });
+    await killSession(req, res);
 
     return res.status(200).json({
       message: "Logged out successfully",
@@ -744,19 +843,14 @@ module.exports.googleCallback = (req, res, next) => {
         return redirectWithError("google_auth_failed");
       }
 
-      const token = jwt.sign(
-        { userId: customer._id, role: customer.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "7d" }
-      );
-
+      
       if (platform === "mobile") {
-        return res.redirect(`${process.env.APP_SCHEME}://auth-callback?token=${token}`);
+       const mobileToken = signToken({ userId: customer._id, role: customer.role });
+        return res.redirect(`${process.env.APP_SCHEME}://auth-callback?token=${mobileToken}`);
       }
 
-      // Web: token passed via redirect URL, matching the existing
-      // localStorage + Bearer-header pattern used by email/password login.
-      return res.redirect(`${process.env.F_URL}/auth/callback?token=${token}`);
+     res.cookie(TOKEN_COOKIE_NAME, signToken({ userId: customer._id, role: customer.role }), cookieOptions());
+      return res.redirect(`${process.env.F_URL}/auth/callback`);
     } catch (error) {
       next(error);
     }
