@@ -20,6 +20,7 @@ const {
   googleAuth,
   googleCallback,
   updateDistributorStatus,
+   deleteOwnProfile,
 } = require("../controllers/customer.controller");
 const {
   getCustomerCount,
@@ -501,6 +502,20 @@ const CustomerRouter = (io) => {
    *       302: { description: Redirects back to the frontend/app with a token or error }
    */
   router.get("/auth/google/callback", googleCallback);
+
+  /**
+ * @swagger
+ * /profile:
+ *   delete:
+ *     summary: Delete the authenticated user's own account
+ *     tags: [Customers]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Account deleted successfully }
+ *       401: { description: Unauthorized }
+ *       404: { description: Customer not found }
+ */
+router.delete("/profile", deleteOwnProfile);
 
   return router;
 };
