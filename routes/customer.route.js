@@ -21,7 +21,6 @@ const {
   googleCallback,
   updateDistributorStatus,
   deleteOwnProfile,
-  refreshToken, 
 } = require("../controllers/customer.controller");
 const {
   getCustomerCount,
@@ -151,27 +150,7 @@ const CustomerRouter = (io) => {
    *       401: { description: Invalid email or password }
    */
   router.post("/login", loginUser);
-
-  /**
-   * @swagger
-   * /refresh:
-   *   post:
-   *     summary: Rotate the refresh token and issue a new access token
-   *     tags: [Auth]
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               refreshToken: { type: string, description: Required for mobile clients; web clients use the refresh_token cookie }
-   *     responses:
-   *       200: { description: New access/refresh token issued }
-   *       401: { description: Missing, invalid, or expired refresh token }
-   *       404: { description: User not found }
-   */
-  router.post("/refresh", refreshToken); // FIX: route was missing entirely
-
+  
   /**
    * @swagger
    * /logout:
