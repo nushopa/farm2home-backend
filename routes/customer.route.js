@@ -20,12 +20,12 @@ const {
   googleAuth,
   googleCallback,
   updateDistributorStatus,
-   deleteOwnProfile,
+  deleteOwnProfile,
+  refreshToken, 
 } = require("../controllers/customer.controller");
 const {
   getCustomerCount,
 } = require("../controllers/dashboardSummary.controller");
-const { authMiddleware } = require("../middleware/authMiddleware");
 
 /**
  * @swagger
@@ -154,6 +154,26 @@ const CustomerRouter = (io) => {
 
   /**
    * @swagger
+   * /refresh:
+   *   post:
+   *     summary: Rotate the refresh token and issue a new access token
+   *     tags: [Auth]
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               refreshToken: { type: string, description: Required for mobile clients; web clients use the refresh_token cookie }
+   *     responses:
+   *       200: { description: New access/refresh token issued }
+   *       401: { description: Missing, invalid, or expired refresh token }
+   *       404: { description: User not found }
+   */
+  router.post("/refresh", refreshToken); // FIX: route was missing entirely
+
+  /**
+   * @swagger
    * /logout:
    *   post:
    *     summary: Log out (blacklists the bearer token)
@@ -204,7 +224,7 @@ const CustomerRouter = (io) => {
    *               code: { type: string }
    *     responses:
    *       200: { description: Code valid }
-   *       400: { description: Invalid code }
+   *       400: { description: Invalid code, or no reset request found }
    *       404: { description: No account found }
    */
   router.post("/customers/verify", verifyCode);
@@ -256,23 +276,27 @@ const CustomerRouter = (io) => {
    * @swagger
    * /update/profile:
    *   put:
-   *     summary: Update first/last name for a customer
+   *     summary: Update the authenticated user's first/last name
    *     tags: [Customers]
+   *     security: [{ bearerAuth: [] }]
    *     requestBody:
    *       required: true
    *       content:
    *         application/json:
    *           schema:
    *             type: object
-   *             required: [id]
    *             properties:
-   *               id: { type: string }
    *               fname: { type: string }
    *               lname: { type: string }
    *     responses:
    *       200: { description: Profile updated }
+   *       401: { description: Unauthorized }
    *       404: { description: Customer not found }
    */
+  // FIX: `id` is no longer accepted from the request body — updateProfile
+  // now derives the target user from the authenticated session
+  // (req.userId), closing an IDOR hole where any caller could edit anyone's
+  // name by passing their id.
   router.put("/update/profile", updateProfile);
 
   /**
@@ -444,7 +468,7 @@ const CustomerRouter = (io) => {
    * @swagger
    * /customers/{id}:
    *   get:
-   *     summary: Get a single customer by ID
+   *     summary: Get a single customer by ID (password hash never included)
    *     tags: [Customers]
    *     parameters:
    *       - in: path
@@ -460,6 +484,7 @@ const CustomerRouter = (io) => {
    *               type: object
    *               properties:
    *                 customer: { $ref: '#/components/schemas/Customer' }
+   *       404: { description: Customer not found }
    *   delete:
    *     summary: Delete a customer (admin only)
    *     tags: [Customers]
@@ -504,19 +529,20 @@ const CustomerRouter = (io) => {
   router.get("/auth/google/callback", googleCallback);
 
   /**
- * @swagger
- * /profile:
- *   delete:
- *     summary: Delete the authenticated user's own account
- *     tags: [Customers]
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: Account deleted successfully }
- *       401: { description: Unauthorized }
- *       404: { description: Customer not found }
- */
-router.delete("/profile", deleteOwnProfile);
+   * @swagger
+   * /profile:
+   *   delete:
+   *     summary: Delete the authenticated user's own account
+   *     tags: [Customers]
+   *     security: [{ bearerAuth: [] }]
+   *     responses:
+   *       200: { description: Account deleted successfully }
+   *       401: { description: Unauthorized }
+   *       404: { description: Customer not found }
+   */
+  router.delete("/profile", deleteOwnProfile);
 
   return router;
 };
+
 module.exports = CustomerRouter;

@@ -12,18 +12,24 @@ const { Resend } = require("resend");
 const passport = require("../config/passport");
 const crypto = require("crypto");
 const resend = new Resend(process.env.RESEND_API_KEY);
+const RefreshToken = require("../models/RefreshToken");
+const {
+  ACCESS_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+  ACCESS_TOKEN_TTL_MS,
+  ACCESS_TOKEN_TTL_JWT,
+  REFRESH_TOKEN_TTL_MS,
+  AUTH_HEADER_PREFIX,
+} = require("../constant/authConstants");
 
-
-const TOKEN_COOKIE_NAME = "token";
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const TOKEN_TTL_JWT = "24h";
-const AUTH_HEADER_PREFIX = "Bearer ";
+const hashToken = (token) =>
+  crypto.createHash("sha256").update(token).digest("hex");
 
 const cookieOptions = () => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax",
-  maxAge: TOKEN_TTL_MS,
+  maxAge: ACCESS_TOKEN_TTL_MS,
   path: "/",
 });
 
@@ -35,31 +41,90 @@ const resolvePlatform = (req) => {
   return p === "mobile" ? "mobile" : "web";
 };
 
+const refreshCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  maxAge: REFRESH_TOKEN_TTL_MS,
+  path: "/", // kept simple/consistent with the rest of the app — see note at the end
+});
+
 const signToken = ({ userId, role }) =>
   jwt.sign({ userId, role }, process.env.JWT_SECRET, {
-    expiresIn: TOKEN_TTL_JWT,
+    expiresIn: ACCESS_TOKEN_TTL_JWT,
   });
 
 
-const issueAuth = (req, res, { userId, role }) => {
-  const platform = resolvePlatform(req);
-  const token = signToken({ userId, role });
+  const createRefreshToken = async (userId) => {
+  const rawToken = crypto.randomBytes(40).toString("hex");
+  await RefreshToken.create({
+    tokenHash: hashToken(rawToken),
+    userId,
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+  });
+  return rawToken;
+};
 
-  if (platform === "mobile") {
-    return { platform, token };
+const rotateRefreshToken = async (oldRawToken) => {
+  const oldHash = hashToken(oldRawToken);
+  const record = await RefreshToken.findOne({ tokenHash: oldHash });
+
+  if (!record || record.revoked || record.expiresAt < new Date()) {
+    if (record?.userId) {
+      await RefreshToken.updateMany(
+        { userId: record.userId, revoked: false },
+        { revoked: true },
+      );
+    }
+    return null;
   }
 
-  res.cookie(TOKEN_COOKIE_NAME, token, cookieOptions());
-  return { platform, token: undefined };
+  const newRawToken = crypto.randomBytes(40).toString("hex");
+  const newHash = hashToken(newRawToken);
+
+  await RefreshToken.create({
+    tokenHash: newHash,
+    userId: record.userId,
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+  });
+
+  record.revoked = true;
+  record.replacedByHash = newHash;
+  await record.save();
+
+  return { rawToken: newRawToken, userId: record.userId };
+};
+
+const issueAuth = async (req, res, { userId, role }) => {
+  const platform = resolvePlatform(req);
+  const token = signToken({ userId, role });
+  const refreshToken = await createRefreshToken(userId); 
+
+  if (platform === "mobile") {
+    return { platform, token, refreshToken };
+  }
+
+  res.cookie(ACCESS_COOKIE_NAME, token, cookieOptions());
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
+  return { platform, token: undefined, refreshToken: undefined };
 };
 
 const clearTokenCookie = (res) => {
-  res.clearCookie(TOKEN_COOKIE_NAME, { ...cookieOptions(), maxAge: undefined });
+  res.clearCookie(ACCESS_COOKIE_NAME, {
+    ...cookieOptions(),
+    maxAge: undefined,
+  });
 };
 
+const clearRefreshTokenCookie = (res) => {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    ...refreshCookieOptions(),
+    maxAge: undefined,
+  });
+};
 
 const getRequestToken = (req) => {
-  if (req.cookies?.[TOKEN_COOKIE_NAME]) return req.cookies[TOKEN_COOKIE_NAME];
+  if (req.cookies?.[ACCESS_COOKIE_NAME]) return req.cookies[ACCESS_COOKIE_NAME];
   const authHeader = req.headers["authorization"];
   if (authHeader && authHeader.startsWith(AUTH_HEADER_PREFIX)) {
     return authHeader.slice(AUTH_HEADER_PREFIX.length);
@@ -67,13 +132,25 @@ const getRequestToken = (req) => {
   return null;
 };
 
-
 const killSession = async (req, res) => {
+  const platform = resolvePlatform(req);
   const token = getRequestToken(req);
+  const refreshTokenRaw =
+    platform === "mobile"
+      ? req.body?.refreshToken
+      : req.cookies?.[REFRESH_COOKIE_NAME];
+
   if (token) {
     await BlacklistedToken.create({ token });
   }
-  clearTokenCookie(res); // harmless no-op for mobile clients that never had one
+  if (refreshTokenRaw) {
+    await RefreshToken.updateOne(
+      { tokenHash: hashToken(refreshTokenRaw) },
+      { revoked: true },
+    );
+  }
+  clearTokenCookie(res);
+  clearRefreshTokenCookie(res);  
   return token;
 };
 
@@ -114,9 +191,9 @@ module.exports.createAccount = async (io, req, res, next) => {
 
     await TempUser.deleteOne({ email });
     await TempUser.create(tempUserData);
-
-    let subject = "Verify Your Email - Nushopa";
-    let emailFileName = "otpVerificationTemp";
+    
+    const subject = "Verify Your Email - Nushopa";
+    const emailFileName = "otpVerificationTemp";
     const dataDetails = {
       first_name,
       last_name,
@@ -127,8 +204,9 @@ module.exports.createAccount = async (io, req, res, next) => {
     await sendEmail(recieverEmail, dataDetails, subject, emailFileName);
 
     res.status(200).send({
-      message: "OTP sent to your email. Please verify to complete registration.",
-      email: email
+      message:
+        "OTP sent to your email. Please verify to complete registration.",
+      email: email,
     });
   } catch (error) {
     next(error);
@@ -145,12 +223,16 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
 
     const tempUserRecord = await TempUser.findOne({ email });
     if (!tempUserRecord) {
-      return res.status(400).send({ message: "Invalid request or OTP expired" });
+      return res
+        .status(400)
+        .send({ message: "Invalid request or OTP expired" });
     }
 
     if (tempUserRecord.otpExpires < new Date()) {
       await TempUser.deleteOne({ email });
-      return res.status(400).send({ message: "OTP has expired. Please register again." });
+      return res
+        .status(400)
+        .send({ message: "OTP has expired. Please register again." });
     }
 
     if (tempUserRecord.otp !== otp) {
@@ -168,8 +250,8 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
 
     await TempUser.deleteOne({ email });
 
-    let subject = "Welcome to Nushopa";
-    let emailFileName = "newUserEmailTemp";
+    const subject = "Welcome to Nushopa";
+    const emailFileName = "newUserEmailTemp";
     const dataDetails = {
       first_name: tempUserRecord.first_name,
       last_name: tempUserRecord.last_name,
@@ -188,7 +270,7 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
     io.emit("notification", notifications);
 
     // Web: httpOnly cookie only. Mobile: token returned in the body.
-    const { platform, token } = issueAuth(req, res, {
+    const { platform, token, refreshToken } = await issueAuth(req, res, {
       userId: data._id,
       role: data.role,
     });
@@ -197,7 +279,8 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
       message: "Account created successfully!",
       data,
     };
-    if (platform === "mobile") responseBody.token = token;
+    if (platform === "mobile")
+      Object.assign(responseBody, { token, refreshToken });
 
     res.status(201).send(responseBody);
   } catch (error) {
@@ -215,7 +298,9 @@ module.exports.resendOTP = async (req, res, next) => {
 
     const tempUserRecord = await TempUser.findOne({ email });
     if (!tempUserRecord) {
-      return res.status(400).send({ message: "No pending registration found for this email" });
+      return res
+        .status(400)
+        .send({ message: "No pending registration found for this email" });
     }
 
     const otp = otpGenerator.generate(6, {
@@ -228,8 +313,8 @@ module.exports.resendOTP = async (req, res, next) => {
     tempUserRecord.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await tempUserRecord.save();
 
-    let subject = "Verify Your Email - Nushopa";
-    let emailFileName = "otpVerificationTemp";
+    const subject = "Verify Your Email - Nushopa";
+    const  emailFileName = "otpVerificationTemp";
     const dataDetails = {
       first_name: tempUserRecord.first_name,
       last_name: tempUserRecord.last_name,
@@ -241,7 +326,7 @@ module.exports.resendOTP = async (req, res, next) => {
 
     res.status(200).send({
       message: "New OTP sent to your email.",
-      email: email
+      email: email,
     });
   } catch (error) {
     next(error);
@@ -260,13 +345,14 @@ module.exports.loginUser = async (req, res, next) => {
       const verifyPassword = await bcrypt.compare(pass, userCheck.password);
       if (verifyPassword) {
         // Web: httpOnly cookie only. Mobile: token returned in the body.
-        const { platform, token } = issueAuth(req, res, {
+        const { platform, token, refreshToken } = await issueAuth(req, res, {
           userId: userCheck._id,
           role: userCheck.role,
         });
         const { password, createdAt, updatedAt, ...others } = userCheck._doc;
         const responseBody = { user: others };
-        if (platform === "mobile") responseBody.token = token;
+        if (platform === "mobile")
+          Object.assign(responseBody, { token, refreshToken });
         return res.status(200).send(responseBody);
       } else {
         return res.status(401).send({ message: "Invalid Email or password" });
@@ -291,6 +377,7 @@ module.exports.getAllCustomers = async (req, res, next) => {
           .status(401)
           .send({ message: "You are not authorized to access this route" });
       const customers = await Customer.find()
+      .select("-password")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit));
@@ -312,7 +399,10 @@ module.exports.getAllCustomers = async (req, res, next) => {
 module.exports.getSingleCustomer = async (req, res, next) => {
   try {
     let { id } = req.params;
-    const customer = await Customer.findById(id);
+    const customer = await Customer.findById(id).select("-password").lean();
+    if (!customer) {
+      return res.status(404).send({ message: "Customer not found!" });
+    }
     return res.status(200).send({ customer });
   } catch (error) {
     next(error);
@@ -321,8 +411,13 @@ module.exports.getSingleCustomer = async (req, res, next) => {
 
 module.exports.updateProfile = async (req, res, next) => {
   try {
-    const { id } = req.body;
-    const customer = await Customer.findById(id);
+    authMiddleware(req, res, async () => {
+    const { userId } = req;
+ 
+      if (!userId) {
+        return res.status(401).send({ message: "Unauthorized" });
+      }
+    const customer = await Customer.findById(userId);
 
     if (customer) {
       customer.first_name = req.body.fname;
@@ -341,6 +436,7 @@ module.exports.updateProfile = async (req, res, next) => {
     } else {
       return res.status(404).send({ message: "Customer not found!" });
     }
+  });
   } catch (error) {
     next(error);
   }
@@ -368,32 +464,40 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
 
       const marketRep = await Customer.findById(userId);
       console.log("Decoded userId:", userId, "Found:", !!marketRep);
+      
       if (!marketRep) {
-        return res.status(404).send({ message: "Market representative not found!" });
+        return res
+          .status(404)
+          .send({ message: "Market representative not found!" });
       }
 
       if (marketRep.role !== 6000) {
         return res.status(403).send({
-          message: "This is only for Market Representatives"
+          message: "This is only for Market Representatives",
         });
       }
 
-      const {  city,
+      const {
+        city,
         address,
         date_of_birth,
         state,
         id_type,
         profile_picture,
-        proof_of_identity, } = req.body;
+        proof_of_identity,
+      } = req.body;
 
       if (city !== undefined) marketRep.city = city?.trim() || null;
       if (address !== undefined) marketRep.address = address?.trim() || null;
-      if (date_of_birth !== undefined) marketRep.date_of_birth = date_of_birth || null;
+      if (date_of_birth !== undefined)
+        marketRep.date_of_birth = date_of_birth || null;
       if (state !== undefined) marketRep.state = state?.trim() || null;
       if (id_type !== undefined) marketRep.id_type = id_type?.trim() || null;
-      if (profile_picture !== undefined) marketRep.profile_picture = profile_picture || null;
-      if (proof_of_identity !== undefined) marketRep.proof_Of_Identity = proof_of_identity || null;
- 
+      if (profile_picture !== undefined)
+        marketRep.profile_picture = profile_picture || null;
+      if (proof_of_identity !== undefined)
+        marketRep.proof_Of_Identity = proof_of_identity || null;
+
       if (!marketRep.status || marketRep.status === "rejected") {
         marketRep.status = "pending";
       }
@@ -407,7 +511,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
       return res.status(200).send({
         success: true,
         message: "Profile updated successfully",
-        profile: profileData
+        profile: profileData,
       });
     });
   } catch (error) {
@@ -506,7 +610,6 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
   }
 };
 
-// Admin-only: delete ANY customer by id.
 module.exports.deleteCustomer = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
@@ -529,7 +632,6 @@ module.exports.deleteCustomer = async (req, res, next) => {
     next(error);
   }
 };
-
 
 module.exports.deleteOwnProfile = async (req, res, next) => {
   try {
@@ -591,9 +693,9 @@ module.exports.forgetPassword = async (req, res, next) => {
     });
 
     await forgetInstance.save();
-    
-    let subject = "Your Nushopa Password Reset Code";
-    let emailFileName = "forgotPasswordTemp";
+
+    const subject = "Your Nushopa Password Reset Code";
+    const emailFileName = "forgotPasswordTemp";
     const dataDetails = {
       first_name: exitMail.first_name,
       email: exitMail.email,
@@ -602,7 +704,9 @@ module.exports.forgetPassword = async (req, res, next) => {
 
     await sendEmail(exitMail.email, dataDetails, subject, emailFileName);
 
-    return res.status(200).send({ success: true, message: "Reset code sent to your email." });
+    return res
+      .status(200)
+      .send({ success: true, message: "Reset code sent to your email." });
   } catch (error) {
     console.error("forgetPassword error:", error);
     next(error);
@@ -623,6 +727,13 @@ module.exports.verifyCode = async (req, res, next) => {
         .send({ message: "No account Found with this email!" });
 
     const value = await Forget.findOne({ user_id: user._id });
+
+    if (!value) {
+      return res.status(400).send({
+        message: "No reset request found. Please request a new code.",
+      });
+    }
+
 
     if (value.otp === code) {
       await Forget.deleteMany({ user_id: user._id });
@@ -698,12 +809,12 @@ module.exports.getAllDistributors = async (req, res, next) => {
       const role = req.role;
       if (role === 2001) {
         return res.status(401).send({
-          message: "You are not authorized to access this route"
+          message: "You are not authorized to access this route",
         });
       }
 
       const distributors = await Customer.find({ role: 6000 })
-        .select('-password')
+        .select("-password")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -729,8 +840,10 @@ module.exports.getSingleDistributor = async (req, res, next) => {
       const { id } = req.params;
       const distributor = await Customer.findOne({
         _id: id,
-        role: 6000
-      }).select('-password').lean();
+        role: 6000,
+      })
+        .select("-password")
+        .lean();
 
       if (!distributor) {
         return res.status(404).send({ message: "Distributor not found!" });
@@ -752,7 +865,9 @@ module.exports.getProfileDetails = async (req, res, next) => {
         return res.status(401).send({ message: "Unauthorized" });
       }
 
-      const customer = await Customer.findById(userId).select('-password').lean();
+      const customer = await Customer.findById(userId)
+        .select("-password")
+        .lean();
 
       if (!customer) {
         return res.status(404).send({ message: "Customer not found!" });
@@ -761,18 +876,57 @@ module.exports.getProfileDetails = async (req, res, next) => {
       return res.status(200).send({
         success: true,
         message: "Profile details retrieved successfully",
-        customer
+        customer,
       });
-
     });
   } catch (error) {
     next(error);
   }
 };
 
+module.exports.refreshToken = async (req, res, next) => {
+  try {
+    const platform = resolvePlatform(req);
+    const oldRefreshToken = 
+    platform === "mobile" 
+    ? req.body?.refreshToken 
+    : req.cookies?.[REFRESH_COOKIE_NAME];
+
+    if (!oldRefreshToken) {
+      return res.status(401).json({ message: "No refresh token provided" });
+    }
+
+    const rotated = await rotateRefreshToken(oldRefreshToken);
+    if (!rotated) {
+      return res.status(401).json({ message: "Invalid or expired refresh token" });
+    }
+    
+    const user = await Customer.findById(rotated.userId).select("role");
+    
+    if (!user) {
+      clearTokenCookie(res);
+      clearRefreshTokenCookie(res);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const  accessToken = signToken({userId: user._id, role: user.role});
+
+    if (platform === "mobile") {
+      return res
+      .status(200)
+      .send({accessToken, refreshToken:rotated.rawToken})
+    }
+
+    res.cookie(ACCESS_COOKIE_NAME, accessToken, accessToken, cookieOptions());
+    res.cookie(REFRESH_COOKIE_NAME, rotated.rawToken, refreshCookieOptions());
+    return res.status(200).send({ success: true });
+  }catch (error) {
+    next(error);
+  }
+};
+
 module.exports.logoutUser = async (req, res, next) => {
   try {
-    
     const token = getRequestToken(req);
 
     if (!token) {
@@ -793,13 +947,15 @@ module.exports.logoutUser = async (req, res, next) => {
 module.exports.googleAuth = (req, res, next) => {
   const platform = req.query.platform === "mobile" ? "mobile" : "web";
   const csrfToken = crypto.randomBytes(16).toString("hex");
-  const state = Buffer.from(JSON.stringify({ csrfToken, platform })).toString("base64url");
+  const state = Buffer.from(JSON.stringify({ csrfToken, platform })).toString(
+    "base64url",
+  );
 
   res.cookie("google_oauth_state", csrfToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    path: "/",           // fixes the earlier path-mismatch so clearCookie actually works
+    path: "/", // fixes the earlier path-mismatch so clearCookie actually works
     maxAge: 5 * 60 * 1000,
   });
 
@@ -825,32 +981,53 @@ module.exports.googleCallback = (req, res, next) => {
       let returnedCsrfToken;
 
       try {
-        const decoded = JSON.parse(Buffer.from(returnedStateRaw, "base64url").toString());
+        const decoded = JSON.parse(
+          Buffer.from(returnedStateRaw, "base64url").toString(),
+        );
         platform = decoded.platform === "mobile" ? "mobile" : "web";
         returnedCsrfToken = decoded.csrfToken;
       } catch {
         // malformed state — treat as invalid below
       }
 
-      const isValidState = returnedCsrfToken && savedCsrfToken && returnedCsrfToken === savedCsrfToken;
+      const isValidState =
+        returnedCsrfToken &&
+        savedCsrfToken &&
+        returnedCsrfToken === savedCsrfToken;
 
       const redirectWithError = (message) => {
         const encoded = encodeURIComponent(message);
         if (platform === "mobile") {
-          return res.redirect(`${process.env.APP_SCHEME}://auth-callback?error=${encoded}`);
+          return res.redirect(
+            `${process.env.APP_SCHEME}://auth-callback?error=${encoded}`,
+          );
         }
-        return res.redirect(`${process.env.F_URL}/auth/callback?error=${encoded}`);
+        return res.redirect(
+          `${process.env.F_URL}/auth/callback?error=${encoded}`,
+        );
       };
 
       if (!isValidState) return redirectWithError("invalid_state");
       if (err || !customer) return redirectWithError("google_auth_failed");
 
       if (platform === "mobile") {
-        const mobileToken = signToken({ userId: customer._id, role: customer.role });
-        return res.redirect(`${process.env.APP_SCHEME}://auth-callback?token=${mobileToken}`);
+        const accessToken = signToken({
+          userId: customer._id,
+          role: customer.role,
+        });
+        const refreshToken = await createRefreshToken(customer._id);
+        return res.redirect(
+          `${process.env.APP_SCHEME}://auth-callback?accessToken=${accessToken}&refreshToken=${refreshToken}`,
+        );
       }
 
-      res.cookie(TOKEN_COOKIE_NAME, signToken({ userId: customer._id, role: customer.role }), cookieOptions());
+      const accessToken = signToken({
+        userId: customer._id,
+        role: customer.role,
+      });
+      const refreshToken = await createRefreshToken(customer._id);
+      res.cookie(ACCESS_COOKIE_NAME, accessToken, cookieOptions());
+      res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
       return res.redirect(`${process.env.F_URL}/auth/callback`);
     } catch (error) {
       next(error);
