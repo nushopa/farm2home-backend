@@ -11,14 +11,10 @@ const BlacklistedToken = require("../models/BlacklistedToken");
 const { Resend } = require("resend");
 const passport = require("../config/passport");
 const crypto = require("crypto");
-const resend = new Resend(process.env.RESEND_API_KEY);
-const RefreshToken = require("../models/RefreshToken");
 const {
   ACCESS_COOKIE_NAME,
-  REFRESH_COOKIE_NAME,
   ACCESS_TOKEN_TTL_MS,
   ACCESS_TOKEN_TTL_JWT,
-  REFRESH_TOKEN_TTL_MS,
   AUTH_HEADER_PREFIX,
 } = require("../constant/authConstants");
 
@@ -41,84 +37,26 @@ const resolvePlatform = (req) => {
   return p === "mobile" ? "mobile" : "web";
 };
 
-const refreshCookieOptions = () => ({
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
-  maxAge: REFRESH_TOKEN_TTL_MS,
-  path: "/", // kept simple/consistent with the rest of the app — see note at the end
-});
-
 const signToken = ({ userId, role }) =>
   jwt.sign({ userId, role }, process.env.JWT_SECRET, {
     expiresIn: ACCESS_TOKEN_TTL_JWT,
   });
 
-
-  const createRefreshToken = async (userId) => {
-  const rawToken = crypto.randomBytes(40).toString("hex");
-  await RefreshToken.create({
-    tokenHash: hashToken(rawToken),
-    userId,
-    expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
-  });
-  return rawToken;
-};
-
-const rotateRefreshToken = async (oldRawToken) => {
-  const oldHash = hashToken(oldRawToken);
-  const record = await RefreshToken.findOne({ tokenHash: oldHash });
-
-  if (!record || record.revoked || record.expiresAt < new Date()) {
-    if (record?.userId) {
-      await RefreshToken.updateMany(
-        { userId: record.userId, revoked: false },
-        { revoked: true },
-      );
-    }
-    return null;
-  }
-
-  const newRawToken = crypto.randomBytes(40).toString("hex");
-  const newHash = hashToken(newRawToken);
-
-  await RefreshToken.create({
-    tokenHash: newHash,
-    userId: record.userId,
-    expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
-  });
-
-  record.revoked = true;
-  record.replacedByHash = newHash;
-  await record.save();
-
-  return { rawToken: newRawToken, userId: record.userId };
-};
-
 const issueAuth = async (req, res, { userId, role }) => {
   const platform = resolvePlatform(req);
   const token = signToken({ userId, role });
-  const refreshToken = await createRefreshToken(userId); 
 
   if (platform === "mobile") {
-    return { platform, token, refreshToken };
+    return { platform, token };
   }
 
   res.cookie(ACCESS_COOKIE_NAME, token, cookieOptions());
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
-  return { platform, token: undefined, refreshToken: undefined };
+  return { platform, token: undefined };
 };
 
 const clearTokenCookie = (res) => {
   res.clearCookie(ACCESS_COOKIE_NAME, {
     ...cookieOptions(),
-    maxAge: undefined,
-  });
-};
-
-const clearRefreshTokenCookie = (res) => {
-  res.clearCookie(REFRESH_COOKIE_NAME, {
-    ...refreshCookieOptions(),
     maxAge: undefined,
   });
 };
@@ -133,24 +71,12 @@ const getRequestToken = (req) => {
 };
 
 const killSession = async (req, res) => {
-  const platform = resolvePlatform(req);
   const token = getRequestToken(req);
-  const refreshTokenRaw =
-    platform === "mobile"
-      ? req.body?.refreshToken
-      : req.cookies?.[REFRESH_COOKIE_NAME];
 
   if (token) {
     await BlacklistedToken.create({ token });
   }
-  if (refreshTokenRaw) {
-    await RefreshToken.updateOne(
-      { tokenHash: hashToken(refreshTokenRaw) },
-      { revoked: true },
-    );
-  }
   clearTokenCookie(res);
-  clearRefreshTokenCookie(res);  
   return token;
 };
 
@@ -191,7 +117,7 @@ module.exports.createAccount = async (io, req, res, next) => {
 
     await TempUser.deleteOne({ email });
     await TempUser.create(tempUserData);
-    
+
     const subject = "Verify Your Email - Nushopa";
     const emailFileName = "otpVerificationTemp";
     const dataDetails = {
@@ -270,7 +196,7 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
     io.emit("notification", notifications);
 
     // Web: httpOnly cookie only. Mobile: token returned in the body.
-    const { platform, token, refreshToken } = await issueAuth(req, res, {
+    const { platform, token } = await issueAuth(req, res, {
       userId: data._id,
       role: data.role,
     });
@@ -280,7 +206,7 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
       data,
     };
     if (platform === "mobile")
-      Object.assign(responseBody, { token, refreshToken });
+      Object.assign(responseBody, { token });
 
     res.status(201).send(responseBody);
   } catch (error) {
@@ -314,7 +240,7 @@ module.exports.resendOTP = async (req, res, next) => {
     await tempUserRecord.save();
 
     const subject = "Verify Your Email - Nushopa";
-    const  emailFileName = "otpVerificationTemp";
+    const emailFileName = "otpVerificationTemp";
     const dataDetails = {
       first_name: tempUserRecord.first_name,
       last_name: tempUserRecord.last_name,
@@ -345,14 +271,14 @@ module.exports.loginUser = async (req, res, next) => {
       const verifyPassword = await bcrypt.compare(pass, userCheck.password);
       if (verifyPassword) {
         // Web: httpOnly cookie only. Mobile: token returned in the body.
-        const { platform, token, refreshToken } = await issueAuth(req, res, {
+        const { platform, token } = await issueAuth(req, res, {
           userId: userCheck._id,
           role: userCheck.role,
         });
         const { password, createdAt, updatedAt, ...others } = userCheck._doc;
         const responseBody = { user: others };
         if (platform === "mobile")
-          Object.assign(responseBody, { token, refreshToken });
+          Object.assign(responseBody, { token });
         return res.status(200).send(responseBody);
       } else {
         return res.status(401).send({ message: "Invalid Email or password" });
@@ -377,7 +303,7 @@ module.exports.getAllCustomers = async (req, res, next) => {
           .status(401)
           .send({ message: "You are not authorized to access this route" });
       const customers = await Customer.find()
-      .select("-password")
+        .select("-password")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit));
@@ -412,31 +338,31 @@ module.exports.getSingleCustomer = async (req, res, next) => {
 module.exports.updateProfile = async (req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
-    const { userId } = req;
- 
+      const { userId } = req;
+
       if (!userId) {
         return res.status(401).send({ message: "Unauthorized" });
       }
-    const customer = await Customer.findById(userId);
+      const customer = await Customer.findById(userId);
 
-    if (customer) {
-      customer.first_name = req.body.fname;
-      customer.last_name = req.body.lname;
+      if (customer) {
+        customer.first_name = req.body.fname;
+        customer.last_name = req.body.lname;
 
-      const saved = await customer.save();
+        const saved = await customer.save();
 
-      if (saved) {
-        const { password, createdAt, updatedAt, ...others } = customer._doc;
-        return res.status(200).send(others);
+        if (saved) {
+          const { password, createdAt, updatedAt, ...others } = customer._doc;
+          return res.status(200).send(others);
+        } else {
+          return res
+            .status(400)
+            .send({ message: "An error occured please try again later" });
+        }
       } else {
-        return res
-          .status(400)
-          .send({ message: "An error occured please try again later" });
+        return res.status(404).send({ message: "Customer not found!" });
       }
-    } else {
-      return res.status(404).send({ message: "Customer not found!" });
-    }
-  });
+    });
   } catch (error) {
     next(error);
   }
@@ -464,7 +390,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
 
       const marketRep = await Customer.findById(userId);
       console.log("Decoded userId:", userId, "Found:", !!marketRep);
-      
+
       if (!marketRep) {
         return res
           .status(404)
@@ -734,7 +660,6 @@ module.exports.verifyCode = async (req, res, next) => {
       });
     }
 
-
     if (value.otp === code) {
       await Forget.deleteMany({ user_id: user._id });
       return res.status(200).send(true);
@@ -884,47 +809,6 @@ module.exports.getProfileDetails = async (req, res, next) => {
   }
 };
 
-module.exports.refreshToken = async (req, res, next) => {
-  try {
-    const platform = resolvePlatform(req);
-    const oldRefreshToken = 
-    platform === "mobile" 
-    ? req.body?.refreshToken 
-    : req.cookies?.[REFRESH_COOKIE_NAME];
-
-    if (!oldRefreshToken) {
-      return res.status(401).json({ message: "No refresh token provided" });
-    }
-
-    const rotated = await rotateRefreshToken(oldRefreshToken);
-    if (!rotated) {
-      return res.status(401).json({ message: "Invalid or expired refresh token" });
-    }
-    
-    const user = await Customer.findById(rotated.userId).select("role");
-    
-    if (!user) {
-      clearTokenCookie(res);
-      clearRefreshTokenCookie(res);
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    const  accessToken = signToken({userId: user._id, role: user.role});
-
-    if (platform === "mobile") {
-      return res
-      .status(200)
-      .send({accessToken, refreshToken:rotated.rawToken})
-    }
-
-    res.cookie(ACCESS_COOKIE_NAME, accessToken, accessToken, cookieOptions());
-    res.cookie(REFRESH_COOKIE_NAME, rotated.rawToken, refreshCookieOptions());
-    return res.status(200).send({ success: true });
-  }catch (error) {
-    next(error);
-  }
-};
-
 module.exports.logoutUser = async (req, res, next) => {
   try {
     const token = getRequestToken(req);
@@ -1015,9 +899,8 @@ module.exports.googleCallback = (req, res, next) => {
           userId: customer._id,
           role: customer.role,
         });
-        const refreshToken = await createRefreshToken(customer._id);
         return res.redirect(
-          `${process.env.APP_SCHEME}://auth-callback?accessToken=${accessToken}&refreshToken=${refreshToken}`,
+          `${process.env.APP_SCHEME}://auth-callback?accessToken=${accessToken}`,
         );
       }
 
@@ -1025,9 +908,7 @@ module.exports.googleCallback = (req, res, next) => {
         userId: customer._id,
         role: customer.role,
       });
-      const refreshToken = await createRefreshToken(customer._id);
       res.cookie(ACCESS_COOKIE_NAME, accessToken, cookieOptions());
-      res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
       return res.redirect(`${process.env.F_URL}/auth/callback`);
     } catch (error) {
       next(error);

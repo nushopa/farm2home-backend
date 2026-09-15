@@ -25,7 +25,6 @@ const getRequestToken = (req) => {
 
 const authMiddleware = async (req, res, next) => {
   try {
-    // 1. Extract token — cookie (web) or Bearer header (mobile).
     const token = getRequestToken(req);
 
     if (!token) {
@@ -41,16 +40,18 @@ const authMiddleware = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     req.userId = decoded.userId;
-    req.role = decoded.role; // plain value, e.g. 2001 — never wrap this in an object downstream
+    req.role = decoded.role;
 
     next();
   } catch (error) {
+    // Any verification failure = force logout, not just expiry.
+    if (req.cookies?.[ACCESS_COOKIE_NAME]) clearStaleCookie(res);
+
     if (error.name === "TokenExpiredError") {
-      if (req.cookies?.[ACCESS_COOKIE_NAME]) clearStaleCookie(res);
-      return res.status(401).json({ message: "Unauthorized - Token has expired" });
+      return res.status(401).json({ message: "Unauthorized - Token has expired. Please log in again." });
     }
     if (error.name === "JsonWebTokenError") {
-      return res.status(403).json({ message: "Forbidden - Invalid token" });
+      return res.status(401).json({ message: "Unauthorized - Invalid token. Please log in again." });
     }
     next(error);
   }
