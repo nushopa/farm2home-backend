@@ -14,30 +14,25 @@ const passport = require("./config/passport");
 const connectDB = require("./config/db");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
+const corsMiddleware = require("./config/cors");
 
 const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3000;
 
-// Render (and most PaaS providers) sit behind a reverse proxy that
-// terminates TLS. This makes req.protocol / req.secure and secure
-// cookies behave correctly.
+
 app.set("trust proxy", 1);
 
 // =============================================
 // ✅ MIDDLEWARE — must come BEFORE routes
 // =============================================
 
-app.use(cors());
+app.use(corsMiddleware);
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-// `verify` captures the raw request bytes into req.rawBody BEFORE they're
-// parsed into req.body. Needed so the Paystack webhook can verify the
-// x-paystack-signature HMAC against the exact bytes Paystack sent — once
-// express.json() parses the body, those raw bytes are gone. This runs for
-// every request, but only costs a Buffer reference, so it's safe globally.
+
 app.use(
   express.json({
     limit: "10mb",
