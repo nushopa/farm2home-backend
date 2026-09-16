@@ -142,9 +142,7 @@ async function addOrder(io, req, res, next) {
 async function getOrdersByCustomer(req, res, next) {
   const { customer_id } = req.params;
   try {
-    const orders = await Order.find({ customer_id })
-      .populate("products.product_id")
-      .sort({ createdAt: -1 });
+    const orders = await Order.find({ customer_id }).sort({ createdAt: -1 });
     res.status(200).send(orders);
   } catch (error) {
     res
@@ -159,7 +157,6 @@ async function getOrdersByOrderId(req, res, next) {
     const orders = await Order.find({ orderID })
       .populate("customer_id")
       .populate("distributor_assigned")
-      .populate("products.product_id");
 
     if (orders.length === 0) {
       return res.status(404).send({ message: "Order not found." });
