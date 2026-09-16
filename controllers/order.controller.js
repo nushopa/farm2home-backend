@@ -23,7 +23,9 @@ async function addOrder(io, req, res, next) {
       if (!product) {
         return res
           .status(404)
-          .send({ message: `Product with ID ${item.product_id._id} not found.` });
+          .send({
+            message: `Product with ID ${item.product_id._id} not found.`,
+          });
       }
       if (product.out_of_stock) {
         return res.status(400).send({
@@ -66,9 +68,9 @@ async function addOrder(io, req, res, next) {
           distributor.email,
           distributor.first_name || distributor.business_name || "Distributor",
           orderID,
-          `${address.address}, ${address.city}`
-        )
-      )
+          `${address.address}, ${address.city}`,
+        ),
+      ),
     );
 
     // Decrement product quantity
@@ -86,7 +88,7 @@ async function addOrder(io, req, res, next) {
       await Product.findByIdAndUpdate(
         productId,
         { product_total: newProductTotal },
-        { new: true }
+        { new: true },
       );
     }
 
@@ -113,7 +115,7 @@ async function addOrder(io, req, res, next) {
         customerFirstName,
         customerEmail,
         deliveryCode,
-        order.orderID
+        order.orderID,
       );
     }
 
@@ -140,7 +142,9 @@ async function addOrder(io, req, res, next) {
 async function getOrdersByCustomer(req, res, next) {
   const { customer_id } = req.params;
   try {
-    const orders = await Order.find({ customer_id });
+    const orders = await Order.find({ customer_id })
+      .populate("products.product_id")
+      .sort({ createdAt: -1 });
     res.status(200).send(orders);
   } catch (error) {
     res
@@ -192,7 +196,7 @@ async function updateOrderStatus(req, res, next) {
     const order = await Order.findOneAndUpdate(
       { orderID },
       { status },
-      { new: true }
+      { new: true },
     );
 
     if (!order) {
@@ -207,7 +211,7 @@ async function updateOrderStatus(req, res, next) {
           title: "Your order is on the way! 🚴",
           body: "Your rider has picked up your order and is heading your way.",
         },
-        "Delivered": {
+        Delivered: {
           title: "Order delivered ✅",
           body: "Your order has arrived. Enjoy!",
         },
@@ -329,7 +333,8 @@ async function assignOrder(io, req, res, next) {
 
   if (!orderID || (!distributor_id && !driver_id)) {
     return res.status(400).send({
-      message: "orderID and at least one of distributor_id or driver_id are required.",
+      message:
+        "orderID and at least one of distributor_id or driver_id are required.",
     });
   }
 
@@ -338,7 +343,9 @@ async function assignOrder(io, req, res, next) {
     if (distributor_id) update.distributor_assigned = distributor_id;
     if (driver_id) update.driver_assigned = driver_id;
 
-    const order = await Order.findOneAndUpdate({ orderID }, update, { new: true });
+    const order = await Order.findOneAndUpdate({ orderID }, update, {
+      new: true,
+    });
 
     if (!order) {
       return res.status(404).send({ message: "Order not found." });
@@ -354,10 +361,12 @@ async function assignOrder(io, req, res, next) {
           distributor.email,
           distributor.first_name || distributor.business_name || "Distributor",
           orderID,
-          addressText
+          addressText,
         );
       } else {
-        console.warn(`assignOrder: distributor ${distributor_id} not found; no email sent.`);
+        console.warn(
+          `assignOrder: distributor ${distributor_id} not found; no email sent.`,
+        );
       }
     }
 
@@ -369,10 +378,12 @@ async function assignOrder(io, req, res, next) {
           driver.email,
           driver.first_name || "Driver",
           orderID,
-          addressText
+          addressText,
         );
       } else {
-        console.warn(`assignOrder: driver ${driver_id} not found; no email sent.`);
+        console.warn(
+          `assignOrder: driver ${driver_id} not found; no email sent.`,
+        );
       }
 
       // --- Push notification to customer (transactional) ---
@@ -399,7 +410,9 @@ async function assignOrder(io, req, res, next) {
     console.error("Error assigning order:", error);
     res
       .status(500)
-      .send({ message: "An unknown error occurred while assigning the order." });
+      .send({
+        message: "An unknown error occurred while assigning the order.",
+      });
   }
 }
 
