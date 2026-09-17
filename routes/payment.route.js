@@ -1,7 +1,6 @@
 const { Router } = require("express");
 const {
   initializeTransaction,
-  initializeBankTransferCharge,
   getOrderStatus,
 } = require("../controllers/payment.controller");
 
@@ -9,7 +8,7 @@ const {
  * @swagger
  * tags:
  *   - name: Payments
- *     description: Paystack transaction initialization and order status polling
+ *     description: Squad transaction initialization and order status polling
  */
 
 const PaymentRouter = () => {
@@ -19,13 +18,14 @@ const PaymentRouter = () => {
    * @swagger
    * /payment/initialize:
    *   post:
-   *     summary: Initialize a Paystack hosted-checkout transaction for the customer's current cart
+   *     summary: Initialize a Squad hosted-checkout transaction for the customer's current cart
    *     description: >
    *       Computes the order total server-side from the customer's cart (subtotal + delivery fee + service
-   *       charge), creates a PendingOrder record, and starts a Paystack transaction. The returned `reference`
-   *       and `authorization_url` should be used with the Paystack popup (web) or a WebView pointed at
-   *       `authorization_url` (mobile). The actual order is only created once the `/webhook/paystack` endpoint
-   *       confirms payment — this route never creates an Order itself.
+   *       charge), creates a PendingOrder record, and starts a Squad transaction. The returned `reference`
+   *       and `checkout_url` should be used to redirect the customer (web) or open a WebView pointed at
+   *       `checkout_url` (mobile). The actual order is only created once the `/webhook/squad` endpoint
+   *       confirms payment, or once `/payment/status/:reference` re-verifies it — this route never creates
+   *       an Order itself.
    *     tags: [Payments]
    *     requestBody:
    *       required: true
@@ -40,11 +40,16 @@ const PaymentRouter = () => {
    *               address:
    *                 type: object
    *                 description: Selected delivery address for this order
+   *               platform:
+   *                 type: string
+   *                 description: >
+   *                   Optional. Pass "mobile" to have the server build a deep-link callback URL using
+   *                   MOBILE_APP_SCHEME instead of the default web FRONTEND_URL callback.
    *               callback_url:
    *                 type: string
    *                 description: >
-   *                   Optional deep link Paystack redirects to once the hosted checkout finishes. Used by
-   *                   mobile clients rendering `authorization_url` in a WebView; omit for web.
+   *                   Optional explicit callback URL, used only as a fallback if neither MOBILE_APP_SCHEME
+   *                   (for platform "mobile") nor FRONTEND_URL is configured.
    *     responses:
    *       200:
    *         description: Transaction initialized
@@ -53,9 +58,9 @@ const PaymentRouter = () => {
    *             schema:
    *               type: object
    *               properties:
-   *                 reference: { type: string, description: PendingOrder ID, used as the Paystack reference }
+   *                 reference: { type: string, description: PendingOrder ID, used as the Squad transaction_ref }
    *                 amount: { type: number, description: Server-computed total in naira }
-   *                 authorization_url: { type: string, description: Paystack-hosted checkout URL }
+   *                 checkout_url: { type: string, description: Squad-hosted checkout URL }
    *       400: { description: Empty cart }
    *       422: { description: Missing required fields }
    *       500: { description: Could not start payment }
@@ -64,74 +69,24 @@ const PaymentRouter = () => {
 
   /**
    * @swagger
-   * /payment/initialize-transfer:
-   *   post:
-   *     summary: Initialize a Pay with Transfer (PwT) charge for the customer's current cart
-   *     description: >
-   *       Computes the order total server-side (same logic as `/payment/initialize`), creates a PendingOrder
-   *       record, and calls Paystack's Charge API with a `bank_transfer` object to generate a temporary
-   *       account number. Intended for a native "Deposit" style UI (e.g. mobile app) rather than a redirect —
-   *       render the returned bank details directly instead of opening a WebView. The actual order is only
-   *       created once the `/webhook/paystack` endpoint receives a `charge.success` event for this reference;
-   *       a `bank.transfer.rejected` event (wrong amount, or fraud flag) marks the PendingOrder as failed
-   *       instead. This route never creates an Order itself.
-   *
-   *       Requires Pay with Transfer to be enabled on the Paystack account. Available to Nigeria and Ghana
-   *       businesses only.
-   *     tags: [Payments]
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             required: [customer_id, address, email]
-   *             properties:
-   *               customer_id: { type: string }
-   *               email: { type: string }
-   *               address:
-   *                 type: object
-   *                 description: Selected delivery address for this order
-   *     responses:
-   *       200:
-   *         description: Transfer account generated
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 reference: { type: string, description: PendingOrder ID, used as the Paystack reference }
-   *                 amount: { type: number, description: Server-computed total in naira }
-   *                 account_name: { type: string }
-   *                 account_number: { type: string }
-   *                 bank_name: { type: string }
-   *                 account_expires_at:
-   *                   type: string
-   *                   description: ISO 8601 timestamp — the account becomes invalid after this time
-   *       400: { description: Empty cart }
-   *       422: { description: Missing required fields }
-   *       500: { description: Could not start payment }
-   *       502: { description: Paystack returned an unexpected charge status }
-   */
-  router.post("/initialize-transfer", initializeBankTransferCharge);
-
-  /**
-   * @swagger
    * /payment/status/{reference}:
    *   get:
    *     summary: Poll the status of a payment/order by reference
    *     description: >
-   *       Used by the frontend after the checkout UI closes (popup, WebView, or the native transfer sheet),
-   *       since closing does not necessarily mean the payment failed — bank transfer and USSD confirm
-   *       asynchronously via the Paystack webhook. Returns `fulfilled` once the webhook has created the
-   *       Order, `pending` while awaiting confirmation, or `failed`/`not_found` otherwise.
+   *       Used by the frontend after the checkout UI closes, since closing does not necessarily mean the
+   *       payment failed — transfer and USSD channels confirm asynchronously via the Squad webhook. Returns
+   *       `fulfilled` once an Order exists for this reference, `pending` while still awaiting confirmation
+   *       (this call also actively re-verifies with Squad as a fallback in case the webhook was missed),
+   *       `failed` if the payment did not succeed, `processing` if fulfillment is being claimed by a
+   *       concurrent request, `flagged_for_review` if Squad's verified amount didn't match the expected
+   *       total, or `not_found` if the reference doesn't exist.
    *     tags: [Payments]
    *     parameters:
    *       - in: path
    *         name: reference
    *         required: true
    *         schema: { type: string }
-   *         description: The PendingOrder ID returned from /payment/initialize or /payment/initialize-transfer
+   *         description: The PendingOrder ID returned from /payment/initialize
    *     responses:
    *       200:
    *         description: Current status of the payment/order
@@ -142,7 +97,7 @@ const PaymentRouter = () => {
    *               properties:
    *                 status:
    *                   type: string
-   *                   enum: [pending, fulfilled, failed]
+   *                   enum: [pending, processing, fulfilled, failed, flagged_for_review, not_found]
    *                 order:
    *                   type: object
    *                   description: Present only when status is "fulfilled"

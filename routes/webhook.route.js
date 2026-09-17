@@ -1,5 +1,5 @@
 const { Router } = require("express");
-const { paystackWebhook } = require("../controllers/payment.controller");
+const { squadWebhook } = require("../controllers/payment.controller");
 
 /**
  * @swagger
@@ -13,18 +13,22 @@ const WebhookRouter = () => {
 
   /**
    * @swagger
-   * /webhook/paystack:
+   * /webhook/squad:
    *   post:
-   *     summary: Paystack webhook — confirms payment and fulfills the order
+   *     summary: Squad webhook — confirms payment and fulfills the order
    *     description: >
-   *       Called server-to-server by Paystack for transaction events, for every payment channel including
-   *       hosted checkout, bank transfer, and USSD. Verifies the `x-paystack-signature` header against the
-   *       raw request body (captured globally in server.js as `req.rawBody`).
+   *       Called server-to-server by Squad for transaction events, for every payment channel including card,
+   *       bank transfer, and USSD. Verifies the `x-squad-signature` header (an HMAC SHA512 of the raw request
+   *       body, signed with your secret key) against the raw request body (captured globally in server.js as
+   *       `req.rawBody`).
    *
-   *       Handles two events: `charge.success` creates the Order and clears the cart. `bank.transfer.rejected`
-   *       (Pay with Transfer only — sent when the customer transfers the wrong amount or is flagged by
-   *       Paystack's fraud system, which triggers an automatic refund on Paystack's end) marks the
-   *       PendingOrder as failed.
+   *       Handles the `charge_successful` event: when its nested `Body.transaction_status` is `"Success"`,
+   *       creates the Order and clears the cart. Also handles `charge_failed`, `transfer_failed`, and
+   *       `transfer_reversed` by marking the PendingOrder as failed — note these three event names are not
+   *       confirmed in Squad's official docs (sourced from a third-party SDK) and should be verified against
+   *       real sandbox webhook payloads. Regardless of event-name accuracy, `/payment/status/:reference`
+   *       actively re-verifies with Squad as a fallback so a missed or misnamed webhook doesn't strand the
+   *       order.
    *     tags: [Webhooks]
    *     requestBody:
    *       required: true
@@ -32,12 +36,12 @@ const WebhookRouter = () => {
    *         application/json:
    *           schema:
    *             type: object
-   *             description: Raw Paystack event payload
+   *             description: Raw Squad event payload
    *     responses:
    *       200: { description: Event acknowledged }
-   *       401: { description: Invalid or missing Paystack signature }
+   *       401: { description: Missing or invalid Squad signature }
    */
-  router.post("/paystack", paystackWebhook);
+  router.post("/squad", squadWebhook);
 
   return router;
 };
