@@ -23,8 +23,8 @@ const hashToken = (token) =>
 
 const cookieOptions = () => ({
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
+  secure: true, /*process.env.NODE_ENV === "production"*/
+  sameSite: "none",
   maxAge: ACCESS_TOKEN_TTL_MS,
   path: "/",
 });

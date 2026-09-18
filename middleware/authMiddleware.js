@@ -8,8 +8,8 @@ const {
 const clearStaleCookie = (res) => {
   res.clearCookie(ACCESS_COOKIE_NAME, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    secure:  true,        /* process.env.NODE_ENV === "production",*/
+    sameSite: "none",
     path: "/",
   });
 };
