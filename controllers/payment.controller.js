@@ -29,6 +29,7 @@ async function buildPendingOrder(customer_id, address) {
   if (!cartItems.length) {
     const err = new Error("Cart is empty.");
     err.status = 400;
+    err.isValidation = true; 
     throw err;
   }
 
@@ -66,11 +67,11 @@ async function initializeTransaction(req, res) {
 
     const squadPayload = {
       amount: pending.amount * 100,
-      customer_email: email,
+      email: email,
       currency: "NGN",
       initiate_type: "inline",
       transaction_ref: reference,
-      channels: PAYMENT_CHANNELS,
+      payment_channels: PAYMENT_CHANNELS,
     };
 
     // The client only tells us *which kind* of redirect it needs.
@@ -96,14 +97,17 @@ async function initializeTransaction(req, res) {
       checkout_url: data.checkout_url,
     });
   } catch (error) {
-    if (error.status === 400) {
+    if (error.isValidation) {
       return res.status(400).send({ message: error.message });
     }
     console.error(
       "initializeTransaction error:",
       error?.response?.data || error,
     );
-    return res.status(500).send({ message: "Could not start payment." });
+    const squadMessage = error?.response?.data?.message;
+    return res.status(500).send({
+       message: "Could not start payment." || squadMessage
+      });
   }
 }
 
