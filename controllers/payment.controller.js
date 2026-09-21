@@ -7,7 +7,7 @@ const Cart = require("../models/Cart");
 const SQUAD_SECRET_KEY = process.env.SQUAD_SECRET_KEY;
 const SQUAD_BASE_URL = process.env.SQUAD_BASE_URL;
 
-const DELIVERY_FEE = 1800;
+const DELIVERY_FEE = 500;
 const SERVICE_CHARGE_RATE = 0.15;
 
 const FRONTEND_URL = process.env.F_URL;
