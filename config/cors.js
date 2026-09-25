@@ -2,12 +2,13 @@
 const cors = require("cors");
 
 const allowedOrigins = [
-  process.env.F_URL,
+  "https://nushopa.com",
+  "https://www.nushopa.com",
   process.env.R_URL,
   process.env.ADMIN_URL,
   process.env.D_URL,
   "http://localhost:5173",
-];
+].filter(Boolean);
 
 const corsOptions = {
   origin: (origin, callback) => {
