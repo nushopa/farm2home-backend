@@ -215,6 +215,10 @@ async function updateOrderStatus(req, res, next) {
           title: "Order delivered ✅",
           body: "Your order has arrived. Enjoy!",
         },
+        Completed: {
+          title: "Order completed ✅",
+          body: "Your order is complete. Thanks for shopping with us!",
+        },
       };
 
       const message = statusMessages[status];
@@ -328,94 +332,6 @@ async function signOrder(io, req, res, next) {
   }
 }
 
-async function assignOrder(io, req, res, next) {
-  const { orderID, distributor_id, driver_id } = req.body;
-
-  if (!orderID || (!distributor_id && !driver_id)) {
-    return res.status(400).send({
-      message:
-        "orderID and at least one of distributor_id or driver_id are required.",
-    });
-  }
-
-  try {
-    const update = {};
-    if (distributor_id) update.distributor_assigned = distributor_id;
-    if (driver_id) update.driver_assigned = driver_id;
-
-    const order = await Order.findOneAndUpdate({ orderID }, update, {
-      new: true,
-    });
-
-    if (!order) {
-      return res.status(404).send({ message: "Order not found." });
-    }
-
-    const orderAddress = order.address ?? {};
-    const addressText = `${orderAddress.address ?? ""}, ${orderAddress.city ?? ""}`;
-
-    if (distributor_id) {
-      const distributor = await Distributor.findById(distributor_id);
-      if (distributor) {
-        await sendOrderAssignedEmail(
-          distributor.email,
-          distributor.first_name || distributor.business_name || "Distributor",
-          orderID,
-          addressText,
-        );
-      } else {
-        console.warn(
-          `assignOrder: distributor ${distributor_id} not found; no email sent.`,
-        );
-      }
-    }
-
-    if (driver_id) {
-      const Drivers = require("../models/Drivers"); // adjust path/name if different
-      const driver = await Drivers.findById(driver_id);
-      if (driver) {
-        await sendOrderAssignedEmail(
-          driver.email,
-          driver.first_name || "Driver",
-          orderID,
-          addressText,
-        );
-      } else {
-        console.warn(
-          `assignOrder: driver ${driver_id} not found; no email sent.`,
-        );
-      }
-
-      // --- Push notification to customer (transactional) ---
-      try {
-        if (order.customer_id) {
-          await sendPushNotification({
-            userId: order.customer_id,
-            title: "A rider has been assigned 🚴",
-            body: "Your order is being prepared for delivery.",
-            data: { type: "rider-assigned", orderId: order.orderID },
-            kind: "transactional",
-          });
-        }
-      } catch (pushErr) {
-        console.error("Failed to send rider-assigned push:", pushErr);
-      }
-    }
-
-    const notifications = await Notification.find();
-    io.emit("notification", notifications);
-
-    res.status(200).send({ message: "Order assigned successfully.", order });
-  } catch (error) {
-    console.error("Error assigning order:", error);
-    res
-      .status(500)
-      .send({
-        message: "An unknown error occurred while assigning the order.",
-      });
-  }
-}
-
 module.exports = {
   addOrder,
   getAllOrders,
@@ -423,5 +339,4 @@ module.exports = {
   getOrdersByOrderId,
   getOrdersByCustomer,
   signOrder,
-  assignOrder,
 };

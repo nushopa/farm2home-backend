@@ -1,5 +1,6 @@
 const Order = require("../models/Order");
 const Driver = require("../models/Driver");
+const { sendPushNotification } = require("../lib/util/sendPush");
 
 async function assignDriver(req, res) {
   const { orderID, driverID } = req.body;
@@ -31,6 +32,36 @@ async function assignDriver(req, res) {
 
     await order.populate("driver_assigned"); // Populate the driver details
 
+    // --- Push notification to the driver (transactional) ---
+    // No-ops until the driver app exists and registers a Device with
+    // userModel: "Driver", userId: driverID — safe to ship ahead of that.
+    try {
+      await sendPushNotification({
+        userId: driverID,
+        title: "New delivery assigned to you 🚴",
+        body: `Order ${orderID} has been assigned to you for delivery.`,
+        data: { type: "order-assigned", orderId: orderID },
+        kind: "transactional",
+      });
+    } catch (pushErr) {
+      console.error("Failed to send driver-assigned push:", pushErr);
+    }
+
+    // --- Push notification to the customer (transactional) ---
+    try {
+      if (order.customer_id) {
+        await sendPushNotification({
+          userId: order.customer_id,
+          title: "A rider has been assigned 🚴",
+          body: "Your order is being prepared for delivery.",
+          data: { type: "rider-assigned", orderId: order.orderID },
+          kind: "transactional",
+        });
+      }
+    } catch (pushErr) {
+      console.error("Failed to send rider-assigned push:", pushErr);
+    }
+
     res.status(200).json({
       message: "Driver assigned successfully",
       order,
@@ -60,8 +91,37 @@ async function unassignDriver(req, res) {
     }
 
     // Unassign the distributor
+    const previousDriverId = order.driver_assigned;
     order.driver_assigned = null;
     await order.save();
+
+    // --- Push notification to the (former) driver (transactional) ---
+    try {
+      await sendPushNotification({
+        userId: previousDriverId,
+        title: "Delivery unassigned",
+        body: `Order ${orderID} is no longer assigned to you.`,
+        data: { type: "order-unassigned", orderId: orderID },
+        kind: "transactional",
+      });
+    } catch (pushErr) {
+      console.error("Failed to send driver-unassigned push:", pushErr);
+    }
+
+    // --- Push notification to the customer (transactional) ---
+    try {
+      if (order.customer_id) {
+        await sendPushNotification({
+          userId: order.customer_id,
+          title: "Delivery reassignment in progress",
+          body: "Your rider assignment changed — we're finding you a new one now.",
+          data: { type: "rider-unassigned", orderId: order.orderID },
+          kind: "transactional",
+        });
+      }
+    } catch (pushErr) {
+      console.error("Failed to send rider-unassigned push:", pushErr);
+    }
 
     res.status(200).json({ message: "Driver unassigned successfully", order });
   } catch (error) {

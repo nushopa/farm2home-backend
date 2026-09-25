@@ -4,10 +4,20 @@ const { getOptionalUserId } = require("../lib/util/optionalAuth");
 
 module.exports.registerDevice = async (req, res, next) => {
   try {
-    const { deviceId, expoPushToken, platform } = req.body;
+    const { deviceId, expoPushToken, webPushToken, platform } = req.body;
 
-    if (!deviceId || !expoPushToken) {
-      return res.status(400).send({ message: "deviceId and expoPushToken are required" });
+    if (!deviceId) {
+      return res.status(400).send({ message: "deviceId is required" });
+    }
+    if (!expoPushToken && !webPushToken) {
+      return res
+        .status(400)
+        .send({ message: "expoPushToken or webPushToken is required" });
+    }
+    if (webPushToken && platform !== "web") {
+      return res
+        .status(400)
+        .send({ message: "platform must be 'web' when registering a webPushToken" });
     }
 
     const userId = getOptionalUserId(req); // null if logged out — that's fine
@@ -16,8 +26,9 @@ module.exports.registerDevice = async (req, res, next) => {
       { deviceId },
       {
         deviceId,
-        expoPushToken,
         platform,
+        ...(expoPushToken ? { expoPushToken } : {}),
+        ...(webPushToken ? { webPushToken } : {}),
         ...(userId ? { userId } : {}), // only overwrite when we actually have one
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }

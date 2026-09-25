@@ -1,5 +1,6 @@
 const Notification = require("../models/Notification");
-const Customer = require("../models/Customer")
+const Customer = require("../models/Customer");
+const { sendPushNotification } = require("../lib/util/sendPush");
 
 const MARKET_REP_ROLE = 6000;
 
@@ -24,9 +25,26 @@ const getAllNotifications = async (io, res) => {
 };
 
 
-// Emit targeted notification to a specific market rep's room only
-const emitMarketRepNotification = (io, distributorId, notification) => {
+// Notify a specific market rep: emits to their socket room AND sends a
+// push to their registered devices (transactional — this is order-specific,
+// not marketing, so it always goes out regardless of marketing_push_enabled).
+const emitMarketRepNotification = async (io, distributorId, notification) => {
   io.to(`marketrep_${distributorId}`).emit("marketrep_notification", notification);
+
+  try {
+    await sendPushNotification({
+      userId: distributorId,
+      title: notification?.title || "New update",
+      body: notification?.message || "",
+      data: {
+        type: notification?.category || "marketrep",
+        orderId: notification?.orderId || "",
+      },
+      kind: "transactional",
+    });
+  } catch (pushErr) {
+    console.error("Failed to send market rep push:", pushErr);
+  }
 };
 
 
@@ -61,11 +79,11 @@ const markNotificationRead = async (req, res) => {
   try {
     const notification = await Notification.findByIdAndUpdate(
       id,
-      {isRead: true},
+      {read: true},
       {new: true}
     )
 
-    if (!noitification) {
+    if (!notification) {
       return res.status(404).json({
         success: true,
         message: "Notification not found"

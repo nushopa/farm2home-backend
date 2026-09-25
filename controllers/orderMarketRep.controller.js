@@ -3,6 +3,7 @@ const Product = require("../models/Product");
 const Customer = require("../models/Customer");
 const { sendEmail } = require("../lib/util/sendEmail");
 const Chat = require("../models/Chat");
+const { sendPushNotification } = require("../lib/util/sendPush");
 
 async function assignDistributor(req, res) {
   const { orderID, distributorID } = req.body;
@@ -47,6 +48,19 @@ async function assignDistributor(req, res) {
       await order.populate("distributor_assigned");
     }
 
+    // --- Push notification to the distributor (transactional) ---
+    try {
+      await sendPushNotification({
+        userId: distributorID,
+        title: "New order assigned to you 📦",
+        body: `Order ${orderID} has been assigned to you for pickup.`,
+        data: { type: "order-assigned", orderId: orderID },
+        kind: "transactional",
+      });
+    } catch (pushErr) {
+      console.error("Failed to send distributor-assigned push:", pushErr);
+    }
+
     return res
       .status(200)
       .json({ message: "Distributor assigned successfully", order });
@@ -78,8 +92,22 @@ async function unassignDistributor(req, res) {
         .json({ message: "No distributor is assigned to this order." });
     }
 
+    const previousDistributorId = order.distributor_assigned;
     order.distributor_assigned = null;
     await order.save();
+
+    // --- Push notification to the (former) distributor (transactional) ---
+    try {
+      await sendPushNotification({
+        userId: previousDistributorId,
+        title: "Order unassigned",
+        body: `Order ${orderID} is no longer assigned to you.`,
+        data: { type: "order-unassigned", orderId: orderID },
+        kind: "transactional",
+      });
+    } catch (pushErr) {
+      console.error("Failed to send distributor-unassigned push:", pushErr);
+    }
 
     res
       .status(200)
