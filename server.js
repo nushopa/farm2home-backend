@@ -1,4 +1,10 @@
-console.log('🔍 NODE VERSION:', process.version);
+// --- Polyfill global crypto for Node 18 (mongodb driver expects it globally) ---
+const { webcrypto } = require("crypto");
+if (!globalThis.crypto) globalThis.crypto = webcrypto;
+
+console.log("🔍 NODE VERSION:", process.version);
+console.log("🔍 NODE_ENV at boot:", process.env.NODE_ENV);
+
 require("dotenv").config({
   path: process.env.NODE_ENV === "production"
     ? ".env.production"
@@ -21,7 +27,6 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3000;
 
-
 app.set("trust proxy", 1);
 
 // =============================================
@@ -33,7 +38,6 @@ app.use(helmet());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-
 app.use(
   express.json({
     limit: "10mb",
@@ -44,7 +48,6 @@ app.use(
 );
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(passport.initialize());
-
 
 // =============================================
 // 📄 SWAGGER DOCS
@@ -79,7 +82,6 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
-
   // Market rep joins their personal room
   socket.on("join_marketrep_room", (distributorId) => {
     if (!distributorId) {

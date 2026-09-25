@@ -1,4 +1,3 @@
-// config/cors.js
 const cors = require("cors");
 
 const allowedOrigins = [
@@ -9,6 +8,9 @@ const allowedOrigins = [
   process.env.D_URL,
   "http://localhost:5173",
 ].filter(Boolean);
+
+// Log once at startup so it's visible in Render's deploy logs
+console.log("🌐 CORS allowed origins:", allowedOrigins);
 
 const corsOptions = {
   origin: (origin, callback) => {
