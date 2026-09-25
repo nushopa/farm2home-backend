@@ -3,8 +3,6 @@ const cors = require("cors");
 
 const allowedOrigins = [
   process.env.F_URL,
-  "https://nushopa.com",
-  "https://www.nushopa.com",
   process.env.R_URL,
   process.env.ADMIN_URL,
   process.env.D_URL,
@@ -28,4 +26,4 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 
-module.exports = cors(corsOptions)
+module.exports = cors(corsOptions);
