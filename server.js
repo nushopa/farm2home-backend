@@ -20,11 +20,6 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3000;
 
-// Firebase Admin is initialized once, lazily, in lib/firebaseAdmin.js
-// (from env vars: FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY).
-// It self-guards with `if (!admin.apps.length)`, so every controller that
-// needs it (via lib/util/sendPush.js) can safely require it without
-// re-initializing the app here.
 
 app.set("trust proxy", 1);
 
