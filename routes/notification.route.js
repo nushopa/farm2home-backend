@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const {
   getAllNotifications,
+  getCustomerNotifications,
   getMarketRepNotifications,
   markNotificationRead,
   deleteNotification,
@@ -10,28 +11,39 @@ const {
  * @swagger
  * tags:
  *   - name: Notifications
- *     description: In-app notifications (general and market-rep specific)
+ *     description: In-app notifications (general, customer, and market-rep specific)
  */
 
-const NotificationRouter = (io) => {
+// NOTE: no longer takes `io` — the GET handlers are pure reads now.
+// Update your server wiring from NotificationRouter(io) to NotificationRouter().
+const NotificationRouter = () => {
   const router = Router();
 
   /**
    * @swagger
    * /notification/:
    *   get:
-   *     summary: Get all notifications
+   *     summary: Get all notifications (admin/staff)
    *     tags: [Notifications]
-   *     responses:
-   *       200:
-   *         description: All notifications
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: array
-   *               items: { $ref: '#/components/schemas/Notification' }
    */
-  router.get("/", (req, res) => getAllNotifications(io, res));
+  router.get("/", getAllNotifications);
+
+  /**
+   * @swagger
+   * /notification/customer/{customerId}:
+   *   get:
+   *     summary: Get a customer's notification history (orders, status, marketing, new products)
+   *     tags: [Notifications]
+   *     parameters:
+   *       - in: path
+   *         name: customerId
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Notifications for this customer }
+   *       400: { description: Customer ID is required }
+   */
+  router.get("/customer/:customerId", getCustomerNotifications);
 
   /**
    * @swagger
@@ -45,13 +57,7 @@ const NotificationRouter = (io) => {
    *         required: true
    *         schema: { type: string }
    *     responses:
-   *       200:
-   *         description: Notifications for this market rep
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: array
-   *               items: { $ref: '#/components/schemas/Notification' }
+   *       200: { description: Notifications for this market rep }
    *       400: { description: Distributor ID is required }
    */
   router.get("/marketrep/:distributorId", getMarketRepNotifications);

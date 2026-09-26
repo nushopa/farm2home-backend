@@ -1,5 +1,6 @@
 const Product = require("../models/Product");
 const Cart = require("../models/Cart");
+const Notification = require("../models/Notification");
 const { sendPushNotification } = require("../lib/util/sendPush");
 
 module.exports.getAllProduct = async (req, res, next) => {
@@ -51,7 +52,10 @@ module.exports.getSingleProduct = async (req, res, next) => {
   }
 };
 
-module.exports.addProduct = async (req, res, next) => {
+// NOTE: now takes `io` as the first argument, same pattern as addOrder /
+// signOrder in order.controller.js. Update your product router + server
+// wiring — see the note below the exports.
+module.exports.addProduct = async (io, req, res, next) => {
   try {
     const {
       alt_image,
@@ -95,18 +99,33 @@ module.exports.addProduct = async (req, res, next) => {
       product_rate,
       product_total,
       product_cost_price,
-      // Defaults to false in the schema if not provided, but respected if the
-      // admin form explicitly sets a product as out of stock at creation time.
       out_of_stock: out_of_stock ?? false,
     });
+
+    // --- In-app notification: persisted (so it shows in everyone's
+    // notification history via getCustomerNotifications) and broadcast
+    // live over sockets. No private data here, so unlike order
+    // notifications a plain io.emit() broadcast is fine.
+    try {
+      const notification = await Notification.create({
+        category: "new_product",
+        customer_id: null,
+        title: "New product on Nushopa \ud83d\uded2\ufe0f",
+        message: `${newProduct.product_name} just landed \u2014 check it out!`,
+        metadata: { productId: newProduct._id },
+      });
+      io.emit("notification", notification);
+    } catch (notifyErr) {
+      console.error("Failed to persist/broadcast new-product notification:", notifyErr);
+    }
 
     // --- Push notification (marketing) ---
     // Goes to every device with marketingPushEnabled on. Non-blocking:
     // a push failure should never fail the product-creation request.
     try {
       await sendPushNotification({
-        title: "New product on Nushopa 🛍️",
-        body: `${newProduct.product_name} just landed — check it out!`,
+        title: "New product on Nushopa \ud83d\uded2\ufe0f",
+        body: `${newProduct.product_name} just landed \u2014 check it out!`,
         data: { type: "new-product", productId: newProduct._id.toString() },
         kind: "marketing",
       });
@@ -154,7 +173,6 @@ module.exports.updateProduct = async (req, res, next) => {
     res.status(400).send({ error });
   }
 };
-
 
 module.exports.toggleStock = async (req, res, next) => {
   try {

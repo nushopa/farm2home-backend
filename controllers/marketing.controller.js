@@ -1,7 +1,11 @@
 const { sendPushNotification } = require("../lib/util/sendPush");
 const { authMiddleware } = require("../middleware/authMiddleware");
+const Notification = require("../models/Notification");
 
-module.exports.sendMarketingPush = async (req, res, next) => {
+// NOTE: now takes `io` as the first argument (see routes/device.routes.js)
+// so marketing announcements can also be persisted + broadcast in-app,
+// not just sent as a push that disappears once dismissed.
+module.exports.sendMarketingPush = async (io, req, res, next) => {
   try {
     authMiddleware(req, res, async () => {
       const { role } = req.role;
@@ -19,8 +23,23 @@ module.exports.sendMarketingPush = async (req, res, next) => {
         title,
         body,
         data: data || {},
-        kind: "marketing",
+        kind: "marketing", // only reaches devices with marketingPushEnabled: true
       });
+
+      // Persisted with customer_id: null since this isn't tied to one
+      // user — getCustomerNotifications picks these up for everyone.
+      const notification = await Notification.create({
+        category: "marketing",
+        customer_id: null,
+        title,
+        message: body,
+        metadata: data || {},
+      });
+
+      // Marketing content has no private data, so a plain broadcast is
+      // fine here — unlike order notifications, which must only ever go
+      // to that one customer's room (see order.controller.js).
+      io.emit("notification", notification);
 
       return res.status(200).send({ success: true, sent: tickets.length });
     });

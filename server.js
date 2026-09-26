@@ -72,7 +72,8 @@ app.get("/health", (req, res) => {
 const { Server } = require("socket.io");
 const Chat = require("./models/Chat");
 const Order = require("./models/Order");
-const { getAllNotifications } = require("./controllers/notification.controller");
+// NOTE: getAllNotifications is no longer needed here — it used to be
+// imported but was never actually called in this file.
 
 const io = new Server(server, {
   cors: {
@@ -82,7 +83,9 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
-  // Market rep joins their personal room
+  // Market rep joins their personal room (existing behavior, unchanged) —
+  // order.controller.js / notification.controller.js emit order-assigned
+  // notifications into marketrep_<distributorId>.
   socket.on("join_marketrep_room", (distributorId) => {
     if (!distributorId) {
       console.error("No distributorId provided in join_marketrep_room event.");
@@ -90,6 +93,37 @@ io.on("connection", (socket) => {
     }
     socket.join(`marketrep_${distributorId}`);
     console.log(`Distributor ${distributorId} joined room marketrep_${distributorId}`);
+  });
+
+  // New: customer joins their personal room — order.controller.js emits
+  // order-placed / order-status notifications into customer_<customerId>.
+  // Without this join, those emits go to an empty room and nobody gets them.
+  socket.on("join_customer_room", (customerId) => {
+    if (!customerId) {
+      console.error("No customerId provided in join_customer_room event.");
+      return;
+    }
+    socket.join(`customer_${customerId}`);
+    console.log(`Customer ${customerId} joined room customer_${customerId}`);
+  });
+
+  // New: staff/admin dashboard joins the shared admin room —
+  // order.controller.js emits the "new order placed" staff notification
+  // into this room instead of broadcasting to every connected socket.
+  socket.on("join_admin_room", () => {
+    socket.join("admin");
+    console.log(`Socket ${socket.id} joined room admin`);
+  });
+
+  // Same pattern for drivers, if/when a driver-facing notification is added
+  // (orderDriver.controller.js would emit into driver_<driverId>).
+  socket.on("join_driver_room", (driverId) => {
+    if (!driverId) {
+      console.error("No driverId provided in join_driver_room event.");
+      return;
+    }
+    socket.join(`driver_${driverId}`);
+    console.log(`Driver ${driverId} joined room driver_${driverId}`);
   });
 
   socket.on("joinRoom", async ({ orderID }) => {
@@ -183,7 +217,9 @@ const PaymentRouter = require("./routes/payment.route");
 const WebhookRouter = require("./routes/webhook.route");
 
 app.use("/", CustomerRouter(io));
-app.use("/product", productRouter);
+// productRouter.js is now a factory (see routes/product.router.js) so
+// addProduct can receive io and persist/broadcast new-product notifications.
+app.use("/product", productRouter(io));
 app.use("/cart", CartRouter);
 app.use("/category", CategorieRouter);
 app.use("/checkout", CheckOutRouter);
@@ -191,14 +227,18 @@ app.use("/order", OrderRouter(io));
 app.use("/pricelist", PriceListRouter);
 app.use("/contact", ContactRouter(io));
 app.use("/news", NewsLetterRouter(io));
-app.use("/notification", NotificationRouter(io));
+// FIX: notification.route.js's GET handlers no longer emit over sockets,
+// so it doesn't need io anymore.
+app.use("/notification", NotificationRouter());
 app.use("/marketplace", MarketplaceRouter(io));
 app.use("/review", ReviewRouter);
 app.use("/driver", DriverRouter(io));
 app.use("/marketrep", RepDashboardRouter(io));
 app.use("/adverts", AdvertRouter());
 app.use("/consent", ConsentRoute());
-app.use("/device", deviceRouter());
+// FIX: device.route.js now takes io, so sendMarketingPush can persist +
+// broadcast the marketing notification, not just push it.
+app.use("/device", deviceRouter(io));
 app.use("/payment", PaymentRouter());
 app.use("/webhook", WebhookRouter());
 

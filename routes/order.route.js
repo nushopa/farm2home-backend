@@ -134,7 +134,9 @@ const OrderRouter = (io) => {
    *                 order: { $ref: '#/components/schemas/Order' }
    *       404: { description: Order not found }
    */
-  router.put("/update", updateOrderStatus);
+  // FIX: updateOrderStatus now takes `io` first so status-change
+  // notifications can be persisted and pushed to customer_<id> only.
+  router.put("/update", (req, res, next) => updateOrderStatus(io, req, res, next));
 
   /**
    * @swagger

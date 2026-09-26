@@ -9,7 +9,9 @@ const { sendMarketingPush } = require("../controllers/marketing.controller");
  *     description: Push-notification device registration and preferences
  */
 
-const DeviceRouter = () => {
+// NOTE: now takes `io`. Update your server wiring from DeviceRouter() to
+// DeviceRouter(io), same pattern as OrderRouter(io) / DriverRouter(io).
+const DeviceRouter = (io) => {
   const router = Router();
 
   /**
@@ -24,14 +26,15 @@ const DeviceRouter = () => {
    *         application/json:
    *           schema:
    *             type: object
-   *             required: [deviceId, expoPushToken]
+   *             required: [deviceId]
    *             properties:
    *               deviceId: { type: string }
    *               expoPushToken: { type: string }
-   *               platform: { type: string, enum: [ios, android] }
+   *               webPushToken: { type: string }
+   *               platform: { type: string, enum: [ios, android, web] }
    *     responses:
    *       200: { description: Device registered }
-   *       400: { description: deviceId and expoPushToken are required }
+   *       400: { description: deviceId and a push token are required }
    */
   router.post("/devices/register", registerDevice);
 
@@ -89,7 +92,7 @@ const DeviceRouter = () => {
    *       400: { description: title and body are required }
    *       401: { description: Not authorized }
    */
-  router.post("/marketing/push", sendMarketingPush);
+  router.post("/marketing/push", (req, res, next) => sendMarketingPush(io, req, res, next));
 
   return router;
 };
