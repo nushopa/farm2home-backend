@@ -119,9 +119,6 @@ module.exports.addProduct = async (io, req, res, next) => {
       console.error("Failed to persist/broadcast new-product notification:", notifyErr);
     }
 
-    // --- Push notification (marketing) ---
-    // Goes to every device with marketingPushEnabled on. Non-blocking:
-    // a push failure should never fail the product-creation request.
     try {
       await sendPushNotification({
         title: "New product on Nushopa \ud83d\uded2\ufe0f",

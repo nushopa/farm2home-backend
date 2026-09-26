@@ -20,7 +20,6 @@ const getAllNotifications = async (req, res) => {
   }
 };
 
-
 const getCustomerNotifications = async (req, res) => {
   const { customerId } = req.params;
   if (!customerId) {
@@ -40,7 +39,6 @@ const getCustomerNotifications = async (req, res) => {
   }
 };
 
-// Fetch persisted notifications for a specific market rep
 const getMarketRepNotifications = async (req, res) => {
   try {
     const { distributorId } = req.params;
@@ -64,11 +62,6 @@ const getMarketRepNotifications = async (req, res) => {
   }
 };
 
-// Notify a specific market rep: emits to their socket room AND sends a
-// push to their registered devices (transactional — order-specific, not
-// marketing, so it always goes out regardless of marketing_push_enabled).
-// Requires the distributor's client to have emitted "join_marketrep_room"
-// (see server.js) so their socket actually joined this room.
 const emitMarketRepNotification = async (io, distributorId, notification) => {
   io.to(`marketrep_${distributorId}`).emit("marketrep_notification", notification);
 
@@ -80,6 +73,7 @@ const emitMarketRepNotification = async (io, distributorId, notification) => {
       data: {
         type: notification?.category || "marketrep",
         orderId: notification?.orderId || "",
+        notificationId: notification?._id ? notification._id.toString() : "",
       },
       kind: "transactional",
     });
@@ -88,14 +82,10 @@ const emitMarketRepNotification = async (io, distributorId, notification) => {
   }
 };
 
-// Same pattern for a single customer — use this from any controller that
-// needs to notify one shopper, instead of a global io.emit.
 const emitCustomerNotification = (io, customerId, notification) => {
   io.to(`customer_${customerId}`).emit("notification", notification);
 };
 
-// For notifications with no single owner (marketing, new_product) — a
-// global broadcast is fine here since there's no private data in them.
 const emitBroadcastNotification = (io, notification) => {
   io.emit("notification", notification);
 };
@@ -110,8 +100,6 @@ const markNotificationRead = async (req, res) => {
     );
 
     if (!notification) {
-      // FIX: was `success: true` on a 404 — inconsistent with every other
-      // not-found response in this file.
       return res.status(404).json({
         success: false,
         message: "Notification not found",
@@ -128,6 +116,42 @@ const markNotificationRead = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "An error occured while updating the notification",
+    });
+  }
+};
+
+// NEW: bulk mark-as-read for a customer's whole notification list — covers
+// the same $or shape as getCustomerNotifications (their own + public
+// marketing/new_product ones) so "mark all as read" doesn't leave the
+// public ones showing as unread again on next fetch.
+const markAllNotificationsRead = async (req, res) => {
+  const { customerId } = req.params;
+  if (!customerId) {
+    return res.status(400).json({ success: false, message: "Customer ID is required" });
+  }
+  try {
+    const result = await Notification.updateMany(
+      {
+        $or: [
+          { customer_id: customerId },
+          { customer_id: null, category: { $in: ["marketing", "new_product"] } },
+        ],
+        read: false,
+      },
+      { $set: { read: true } },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Notifications marked as read",
+      matched: result.matchedCount ?? result.n,
+      modified: result.modifiedCount ?? result.nModified,
+    });
+  } catch (error) {
+    console.error("Error marking all notifications as read:", error);
+    return res.status(500).json({
+      success: false,
+      message: "An error occured while updating notifications",
     });
   }
 };
@@ -162,6 +186,7 @@ module.exports = {
   getCustomerNotifications,
   getMarketRepNotifications,
   markNotificationRead,
+  markAllNotificationsRead,
   deleteNotification,
   emitMarketRepNotification,
   emitCustomerNotification,

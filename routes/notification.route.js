@@ -4,6 +4,7 @@ const {
   getCustomerNotifications,
   getMarketRepNotifications,
   markNotificationRead,
+  markAllNotificationsRead,
   deleteNotification,
 } = require("../controllers/notification.controller");
 
@@ -14,8 +15,6 @@ const {
  *     description: In-app notifications (general, customer, and market-rep specific)
  */
 
-// NOTE: no longer takes `io` — the GET handlers are pure reads now.
-// Update your server wiring from NotificationRouter(io) to NotificationRouter().
 const NotificationRouter = () => {
   const router = Router();
 
@@ -47,6 +46,23 @@ const NotificationRouter = () => {
 
   /**
    * @swagger
+   * /notification/customer/{customerId}/read-all:
+   *   patch:
+   *     summary: Mark all of a customer's notifications as read (their own plus public marketing/new_product ones)
+   *     tags: [Notifications]
+   *     parameters:
+   *       - in: path
+   *         name: customerId
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Notifications marked as read }
+   *       400: { description: Customer ID is required }
+   */
+  router.patch("/customer/:customerId/read-all", markAllNotificationsRead);
+
+  /**
+   * @swagger
    * /notification/marketrep/{distributorId}:
    *   get:
    *     summary: Get notifications for a specific market rep
@@ -66,7 +82,7 @@ const NotificationRouter = () => {
    * @swagger
    * /notification/{id}/read:
    *   patch:
-   *     summary: Mark a notification as read
+   *     summary: Mark a single notification as read
    *     tags: [Notifications]
    *     parameters:
    *       - in: path

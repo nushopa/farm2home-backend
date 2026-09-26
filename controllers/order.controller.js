@@ -19,8 +19,6 @@ function formatNaira(amount) {
   return `\u20a6${n.toLocaleString("en-NG")}`;
 }
 
-// Builds a short line-item summary ("2x Rice, 1x Beans") plus a structured
-// items array to store on the notification's metadata for later display.
 function buildOrderSummary(products, productMap) {
   const items = products.map((item) => {
     const productId = item.product_id._id;
@@ -43,9 +41,6 @@ async function addOrder(io, req, res, next) {
   }
 
   try {
-    // Fetch each product once and reuse it for the stock check, the
-    // quantity decrement below, and the order summary — the original code
-    // fetched every product twice.
     const productMap = new Map();
 
     for (const item of products) {
@@ -65,10 +60,8 @@ async function addOrder(io, req, res, next) {
       productMap.set(String(product._id), product);
     }
 
-    // Generate a unique delivery code
     const deliveryCode = crypto.randomBytes(4).toString("hex").toUpperCase();
 
-    // Create order with status and delivery code
     const order = await Order.create({
       address,
       orderID,
@@ -79,7 +72,6 @@ async function addOrder(io, req, res, next) {
       markets: [],
     });
 
-    // Fetch and assign distributors based on address or city
     const distributors = await Distributor.find({
       $or: [
         { address: { $regex: new RegExp(address.address, "i") } },
@@ -87,11 +79,9 @@ async function addOrder(io, req, res, next) {
       ],
     });
 
-    // Update order with market information
     order.distributors = distributors;
     await order.save();
 
-    // Notify each matched distributor that a new order has been assigned to them
     await Promise.all(
       distributors.map((distributor) =>
         sendOrderAssignedEmail(
@@ -103,7 +93,6 @@ async function addOrder(io, req, res, next) {
       ),
     );
 
-    // Decrement product quantity (reuses the docs fetched above)
     for (const item of products) {
       const productId = item.product_id._id;
       const productQuantity = parseInt(item.product_quatity);
@@ -120,14 +109,12 @@ async function addOrder(io, req, res, next) {
       );
     }
 
-    // Delete items from the cart
     await Cart.deleteMany({ customer_id });
 
     const user = await Customer.findById(customer_id);
     const { items, shortSummary } = buildOrderSummary(products, productMap);
     const summaryLine = `${shortSummary} \u2022 Total ${formatNaira(amount_paid)} \u2022 Delivery code ${deliveryCode}`;
 
-    // --- Admin/staff-facing notification (unchanged intent, now scoped) ---
     const adminNotification = await Notification.create({
       category: "order",
       orderId: orderID,
@@ -138,10 +125,6 @@ async function addOrder(io, req, res, next) {
     });
     io.to("admin").emit("notification", adminNotification);
 
-    // --- Customer-facing notification: persisted (shows in their in-app
-    // notification history) and scoped to only that customer's socket room.
-    // Never io.emit() this kind of thing globally — that broadcasts every
-    // customer's private order data to every connected client.
     const customerNotification = await Notification.create({
       category: "order_placed",
       orderId: orderID,
@@ -163,13 +146,17 @@ async function addOrder(io, req, res, next) {
       );
     }
 
-    // --- Push notification to customer (transactional) ---
     try {
       await sendPushNotification({
         userId: customer_id,
         title: "Order placed! \ud83c\udf89",
         body: summaryLine,
-        data: { type: "order-placed", orderId: orderID, deliveryCode },
+        data: {
+          type: "order-placed",
+          orderId: orderID,
+          deliveryCode,
+          notificationId: customerNotification._id.toString(),
+        },
         kind: "transactional",
       });
     } catch (pushErr) {
@@ -234,8 +221,6 @@ async function getOrdersByOrderId(req, res, next) {
   }
 }
 
-// NOTE: now takes `io` (see routes/order.routes.js) so status changes can
-// be pushed live to the customer's socket room, not just as a push notif.
 async function updateOrderStatus(io, req, res, next) {
   const { orderID, status } = req.body;
   try {
@@ -249,7 +234,6 @@ async function updateOrderStatus(io, req, res, next) {
       return res.status(404).send({ message: "Order not found." });
     }
 
-    // TODO: confirm these status strings match your actual Order status enum.
     const statusMessages = {
       Processing: {
         title: "Order is being processed \ud83d\udee0\ufe0f",
@@ -272,8 +256,6 @@ async function updateOrderStatus(io, req, res, next) {
     const message = statusMessages[status];
 
     if (message && order.customer_id) {
-      // Persisted so it shows up in the customer's notification history,
-      // not just as a push they might miss/dismiss.
       const notification = await Notification.create({
         category: "order_status",
         orderId: order.orderID,
@@ -289,7 +271,12 @@ async function updateOrderStatus(io, req, res, next) {
           userId: order.customer_id,
           title: message.title,
           body: message.body,
-          data: { type: "order-status", orderId: order.orderID, status },
+          data: {
+            type: "order-status",
+            orderId: order.orderID,
+            status,
+            notificationId: notification._id.toString(),
+          },
           kind: "transactional",
         });
       } catch (pushErr) {
@@ -362,8 +349,6 @@ async function signOrder(io, req, res, next) {
     }
     await order.save();
 
-    // FIX: this notification used to be created with no customer_id at
-    // all, so it could never be found again for that customer.
     const notification = await Notification.create({
       category: "order_status",
       orderId: orderID,
@@ -372,8 +357,6 @@ async function signOrder(io, req, res, next) {
       message: "Your order has been successfully signed and delivered.",
     });
 
-    // FIX: was io.emit(...) of the entire notifications collection to
-    // every connected socket. Scope it to this one customer instead.
     io.to(`customer_${order.customer_id}`).emit("notification", notification);
 
     try {
@@ -382,7 +365,12 @@ async function signOrder(io, req, res, next) {
           userId: order.customer_id,
           title: "Order delivered \u2705",
           body: "Your order has arrived. Enjoy!",
-          data: { type: "order-status", orderId: orderID, status: "Delivered" },
+          data: {
+            type: "order-status",
+            orderId: orderID,
+            status: "Delivered",
+            notificationId: notification._id.toString(),
+          },
           kind: "transactional",
         });
       }
