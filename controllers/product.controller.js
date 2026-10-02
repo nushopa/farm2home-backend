@@ -52,9 +52,6 @@ module.exports.getSingleProduct = async (req, res, next) => {
   }
 };
 
-// NOTE: now takes `io` as the first argument, same pattern as addOrder /
-// signOrder in order.controller.js. Update your product router + server
-// wiring — see the note below the exports.
 module.exports.addProduct = async (io, req, res, next) => {
   try {
     const {
@@ -83,9 +80,6 @@ module.exports.addProduct = async (io, req, res, next) => {
       !product_cost_price
     )
       return res.status(400).send({ message: "Field are required!" });
-
-    // upload image to cloudinary
-    //const result = await cloudinary.uploader.upload(req.body.product_image)
     const newProduct = await Product.create({
       product_name,
       product_brand_name,
@@ -102,10 +96,6 @@ module.exports.addProduct = async (io, req, res, next) => {
       out_of_stock: out_of_stock ?? false,
     });
 
-    // --- In-app notification: persisted (so it shows in everyone's
-    // notification history via getCustomerNotifications) and broadcast
-    // live over sockets. No private data here, so unlike order
-    // notifications a plain io.emit() broadcast is fine.
     try {
       const notification = await Notification.create({
         category: "new_product",
@@ -116,7 +106,10 @@ module.exports.addProduct = async (io, req, res, next) => {
       });
       io.emit("notification", notification);
     } catch (notifyErr) {
-      console.error("Failed to persist/broadcast new-product notification:", notifyErr);
+      console.error(
+        "Failed to persist/broadcast new-product notification:",
+        notifyErr,
+      );
     }
 
     try {
@@ -147,7 +140,7 @@ module.exports.removeProduct = async (req, res, next) => {
       .catch((error) =>
         res
           .status(400)
-          .send({ message: "An error occured please try again later" })
+          .send({ message: "An error occured please try again later" }),
       );
   } catch (error) {
     next(error);
@@ -161,7 +154,7 @@ module.exports.updateProduct = async (req, res, next) => {
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       { $set: updateData },
-      { new: true }
+      { new: true },
     );
 
     res.status(200).send({ data: updatedProduct });
@@ -184,7 +177,7 @@ module.exports.toggleStock = async (req, res, next) => {
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       { $set: { out_of_stock } },
-      { new: true }
+      { new: true },
     );
 
     if (!updatedProduct) {
