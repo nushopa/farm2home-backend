@@ -5,7 +5,7 @@ const allowedOrigins = [
   "https://www.nushopa.com",
   process.env.R_URL,
   process.env.ADMIN_URL,
-  process.env.D_URL,
+  process.env.D_URL || "https://rider.nushopa.com",
   "http://localhost:5173",
 ].filter(Boolean);
 
