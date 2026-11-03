@@ -8,7 +8,6 @@ const { authMiddleware } = require("../middleware/authMiddleware");
 const Notification = require("../models/Notification");
 const TempUser = require("../models/tempUser");
 const BlacklistedToken = require("../models/BlacklistedToken");
-const { Resend } = require("resend");
 const passport = require("../config/passport");
 const crypto = require("crypto");
 const {
@@ -17,9 +16,6 @@ const {
   ACCESS_TOKEN_TTL_JWT,
   AUTH_HEADER_PREFIX,
 } = require("../constant/authConstants");
-
-const hashToken = (token) =>
-  crypto.createHash("sha256").update(token).digest("hex");
 
 const cookieOptions = () => ({
   httpOnly: true,
@@ -82,11 +78,25 @@ const killSession = async (req, res) => {
 
 module.exports.createAccount = async (io, req, res, next) => {
   try {
-    const { first_name, last_name, phone_number, email, password, role } =
-      req.body;
+    const {
+      first_name,
+      last_name,
+      phone_number,
+      email,
+      password,
+      role,
+      availability,
+    } = req.body;
 
     if (!first_name || !last_name || !email || !password) {
       return res.status(400).send({ message: "Credentials are required!" });
+    }
+
+    // Optional field: validate only if provided
+    if (availability !== undefined && typeof availability !== "boolean") {
+      return res
+        .status(400)
+        .send({ message: "Availability must be true or false" });
     }
 
     const check = await Customer.findOne({ email });
@@ -114,6 +124,11 @@ module.exports.createAccount = async (io, req, res, next) => {
       otp,
       otpExpires: new Date(Date.now() + 10 * 60 * 1000),
     };
+
+    // NOTE: TempUser needs an optional `availability` Boolean field for this
+    // to be carried through verification. Without it, Mongoose strict mode
+    // drops it and the Customer default (true) applies.
+    if (availability !== undefined) tempUserData.availability = availability;
 
     await TempUser.deleteOne({ email });
     await TempUser.create(tempUserData);
@@ -172,6 +187,9 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
       email: tempUserRecord.email,
       password: tempUserRecord.password,
       role: tempUserRecord.role,
+      ...(typeof tempUserRecord.availability === "boolean" && {
+        availability: tempUserRecord.availability,
+      }),
     });
 
     await TempUser.deleteOne({ email });
@@ -201,12 +219,14 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
       role: data.role,
     });
 
+    // Don't leak the password hash
+    const { password, ...safeData } = data.toObject();
+
     const responseBody = {
       message: "Account created successfully!",
-      data,
+      data: safeData,
     };
-    if (platform === "mobile")
-      Object.assign(responseBody, { token });
+    if (platform === "mobile") Object.assign(responseBody, { token });
 
     res.status(201).send(responseBody);
   } catch (error) {
@@ -277,8 +297,7 @@ module.exports.loginUser = async (req, res, next) => {
         });
         const { password, createdAt, updatedAt, ...others } = userCheck._doc;
         const responseBody = { user: others };
-        if (platform === "mobile")
-          Object.assign(responseBody, { token });
+        if (platform === "mobile") Object.assign(responseBody, { token });
         return res.status(200).send(responseBody);
       } else {
         return res.status(401).send({ message: "Invalid Email or password" });
@@ -343,11 +362,26 @@ module.exports.updateProfile = async (req, res, next) => {
       if (!userId) {
         return res.status(401).send({ message: "Unauthorized" });
       }
+
+      const { fname, lname, availability } = req.body;
+
+      if (availability !== undefined && typeof availability !== "boolean") {
+        return res
+          .status(400)
+          .send({ message: "Availability must be true or false" });
+      }
+
       const customer = await Customer.findById(userId);
 
       if (customer) {
-        customer.first_name = req.body.fname;
-        customer.last_name = req.body.lname;
+        // Fall back to existing values so sending only `availability`
+        // doesn't blank out the required name fields.
+        customer.first_name = fname || customer.first_name;
+        customer.last_name = lname || customer.last_name;
+
+        if (availability !== undefined) {
+          customer.availability = availability;
+        }
 
         const saved = await customer.save();
 
@@ -362,6 +396,48 @@ module.exports.updateProfile = async (req, res, next) => {
       } else {
         return res.status(404).send({ message: "Customer not found!" });
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Dedicated availability toggle for the logged-in customer.
+ * Route example: PATCH /customer/availability
+ */
+module.exports.updateCustomerAvailability = async (req, res, next) => {
+  try {
+    authMiddleware(req, res, async () => {
+      const { userId } = req;
+
+      if (!userId) {
+        return res.status(401).send({ message: "Unauthorized" });
+      }
+
+      const { availability } = req.body;
+
+      if (typeof availability !== "boolean") {
+        return res
+          .status(400)
+          .send({ message: "Availability must be true or false" });
+      }
+
+      const customer = await Customer.findByIdAndUpdate(
+        userId,
+        { availability },
+        { returnDocument: "after" },
+      ).select("-password");
+
+      if (!customer) {
+        return res.status(404).send({ message: "Customer not found!" });
+      }
+
+      return res.status(200).send({
+        success: true,
+        message: `You are now ${availability ? "available" : "unavailable"}`,
+        customer,
+      });
     });
   } catch (error) {
     next(error);
@@ -389,7 +465,6 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
       }
 
       const marketRep = await Customer.findById(userId);
-      console.log("Decoded userId:", userId, "Found:", !!marketRep);
 
       if (!marketRep) {
         return res
@@ -411,7 +486,14 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
         id_type,
         profile_picture,
         proof_of_identity,
+        availability,
       } = req.body;
+
+      if (availability !== undefined && typeof availability !== "boolean") {
+        return res
+          .status(400)
+          .send({ message: "Availability must be true or false" });
+      }
 
       if (city !== undefined) marketRep.city = city?.trim() || null;
       if (address !== undefined) marketRep.address = address?.trim() || null;
@@ -423,11 +505,13 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
         marketRep.profile_picture = profile_picture || null;
       if (proof_of_identity !== undefined)
         marketRep.proof_Of_Identity = proof_of_identity || null;
+      if (availability !== undefined) marketRep.availability = availability;
 
       if (!marketRep.status || marketRep.status === "rejected") {
         marketRep.status = "pending";
       }
 
+      // availability is optional and does not affect profile completion
       marketRep.profile_completed = isMarketRepProfileComplete(marketRep);
 
       await marketRep.save();
@@ -839,7 +923,7 @@ module.exports.googleAuth = (req, res, next) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    path: "/", // fixes the earlier path-mismatch so clearCookie actually works
+    path: "/",
     maxAge: 5 * 60 * 1000,
   });
 
@@ -871,7 +955,7 @@ module.exports.googleCallback = (req, res, next) => {
         platform = decoded.platform === "mobile" ? "mobile" : "web";
         returnedCsrfToken = decoded.csrfToken;
       } catch {
-        // malformed state — treat as invalid below
+        // malformed state: treat as invalid below
       }
 
       const isValidState =

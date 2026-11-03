@@ -19,10 +19,12 @@ const {
 const {
   editDriver,
   updateDriverReviewStatus,
+  updateDriverAvailability,
 } = require("../controllers/driver/editDriver.controller");
 const {
   deleteDriver,
 } = require("../controllers/driver/deleteDriver.controller");
+const { driverAuthMiddleware } = require("../middleware/driverAuthMiddleware");
 
 /**
  * @swagger
@@ -134,6 +136,9 @@ const DriverRouter = (io) => {
    *               proofOfIdentity: { type: string }
    *               licenseFile: { type: string }
    *               profilePicture: { type: string }
+   *               availability:
+   *                 type: boolean
+   *                 description: Optional. Defaults to false.
    *     responses:
    *       201:
    *         description: Driver account created
@@ -144,10 +149,10 @@ const DriverRouter = (io) => {
    *               properties:
    *                 token: { type: string }
    *                 data: { $ref: '#/components/schemas/Driver' }
-   *       400: { description: Missing fields, OTP not verified, or phone already registered }
+   *       400: { description: Missing fields, invalid availability, OTP not verified, or phone already registered }
    */
   router.post("/create", (req, res, next) =>
-    createDriverAccount(io, req, res, next)
+    createDriverAccount(io, req, res, next),
   );
 
   /**
@@ -196,12 +201,15 @@ const DriverRouter = (io) => {
    *               workCity: { type: string }
    *               proofOfIdentity: { type: string }
    *               licenseFile: { type: string }
+   *               availability:
+   *                 type: boolean
+   *                 description: Optional. Defaults to false.
    *     responses:
    *       201: { description: Driver account created }
-   *       400: { description: Missing fields, vehicle type missing, or phone already registered }
+   *       400: { description: Missing fields, invalid availability, vehicle type missing, or phone already registered }
    */
   router.post("/create-oauth", (req, res, next) =>
-    createOauthDriverAccount(io, req, res, next)
+    createOauthDriverAccount(io, req, res, next),
   );
 
   /**
@@ -274,6 +282,40 @@ const DriverRouter = (io) => {
 
   /**
    * @swagger
+   * /driver/{id}/availability:
+   *   patch:
+   *     summary: Set a driver's availability (the driver can only update their own)
+   *     tags: [Drivers]
+   *     security: [{ bearerAuth: [] }]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [availability]
+   *             properties:
+   *               availability: { type: boolean }
+   *     responses:
+   *       200: { description: Availability updated }
+   *       400: { description: availability must be a boolean }
+   *       401: { description: Unauthorized }
+   *       403: { description: Cannot update another driver's availability }
+   *       404: { description: Driver not found }
+   */
+  router.patch(
+    "/:id/availability",
+    driverAuthMiddleware,
+    updateDriverAvailability,
+  );
+
+  /**
+   * @swagger
    * /driver/{id}:
    *   get:
    *     summary: Get a driver by ID
@@ -298,9 +340,30 @@ const DriverRouter = (io) => {
    *         name: id
    *         required: true
    *         schema: { type: string }
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               firstName: { type: string }
+   *               lastName: { type: string }
+   *               email: { type: string }
+   *               phoneNumber: { type: string }
+   *               dateOfBirth: { type: string }
+   *               address: { type: string }
+   *               workCity: { type: string }
+   *               vehicleType: { type: string }
+   *               proofOfIdentity: { type: string }
+   *               licenseFile: { type: string }
+   *               profilePicture: { type: string }
+   *               status: { type: boolean }
+   *               availability:
+   *                 type: boolean
+   *                 description: Optional
    *     responses:
    *       200: { description: Driver information updated }
-   *       400: { description: Status cannot be updated unless review is true }
+   *       400: { description: Status cannot be updated unless review is true, or invalid availability }
    *       404: { description: Driver not found }
    *   delete:
    *     summary: Delete a driver
@@ -332,6 +395,10 @@ const DriverRouter = (io) => {
    *       - in: query
    *         name: limit
    *         schema: { type: integer, default: 20 }
+   *       - in: query
+   *         name: availability
+   *         description: Optional filter
+   *         schema: { type: boolean }
    *     responses:
    *       200: { description: Paginated driver list }
    *       401: { description: Not authorized }
@@ -360,6 +427,7 @@ const DriverRouter = (io) => {
    *               review: { type: boolean }
    *     responses:
    *       200: { description: Review status updated }
+   *       400: { description: review must be a boolean }
    *       404: { description: Driver not found }
    */
   router.put("/:id/review", updateDriverReviewStatus);

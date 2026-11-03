@@ -1,13 +1,22 @@
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const Driver = require("../../models/Driver");
 const PendingDriver = require("../../models/PendingDriver");
-const nodemailer = require("nodemailer");
 const Notification = require("../../models/Notification");
-const jwt = require("jsonwebtoken");
 const { transporter } = require("../../lib/util/transporter");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+const sanitizeDriver = (driver) => {
+  const obj = typeof driver.toObject === "function" ? driver.toObject() : driver;
+  delete obj.password;
+  return obj;
+};
+
+/**
+ * Step 1: Request OTP
+ */
 async function requestOTP(req, res, next) {
   try {
     const { email } = req.body;
@@ -15,31 +24,27 @@ async function requestOTP(req, res, next) {
       return res.status(400).json({ message: "Email is required" });
     }
 
-    // Check if email is already registered
     const existingDriver = await Driver.findOne({ email });
     if (existingDriver) {
       return res.status(400).json({ message: "Email is already registered" });
     }
 
-    // Generate OTP and set expiry
-    const otp = Math.floor(1000 + Math.random() * 9000).toString();
-    const otpExpiry = Date.now() + 15 * 60 * 1000; // 15 minutes expiry
+    // 4-digit OTP, 15 minute expiry
+    const otp = crypto.randomInt(1000, 10000).toString();
+    const otpExpiry = Date.now() + 15 * 60 * 1000;
 
-    // Store in PendingDriver collection
     await PendingDriver.findOneAndUpdate(
       { email },
       { email, otp, otpExpiry, verified: false },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: "after" }
     );
 
-    // Send OTP via email
-    const mailOptions = {
+    await transporter.sendMail({
       from: process.env.EMAIL_FROM,
       to: email,
       subject: "Your OTP for Driver Registration",
       text: `Your OTP is: ${otp}. It will expire in 15 minutes.`,
-    };
-    await transporter.sendMail(mailOptions);
+    });
 
     return res
       .status(200)
@@ -60,7 +65,6 @@ async function verifyOTP(req, res, next) {
     }
 
     const registration = await PendingDriver.findOne({ email });
-
     if (!registration) {
       return res
         .status(400)
@@ -97,7 +101,6 @@ async function selectVehicleType(req, res, next) {
     }
 
     const registration = await PendingDriver.findOne({ email });
-
     if (!registration || !registration.verified) {
       return res.status(400).json({ message: "OTP not verified yet." });
     }
@@ -113,7 +116,8 @@ async function selectVehicleType(req, res, next) {
 }
 
 /**
- * Step 4: Complete Registration
+ * Step 4: Complete Registration (email/password flow)
+ * `availability` is optional. If omitted, the schema default applies.
  */
 async function createDriverAccount(io, req, res, next) {
   try {
@@ -129,6 +133,7 @@ async function createDriverAccount(io, req, res, next) {
       proofOfIdentity,
       licenseFile,
       profilePicture,
+      availability,
     } = req.body;
 
     if (
@@ -148,8 +153,13 @@ async function createDriverAccount(io, req, res, next) {
         .json({ message: "All required fields must be provided." });
     }
 
-    const registration = await PendingDriver.findOne({ email });
+    if (availability !== undefined && typeof availability !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "Availability must be true or false" });
+    }
 
+    const registration = await PendingDriver.findOne({ email });
     if (!registration || !registration.verified) {
       return res.status(400).json({ message: "OTP not verified yet." });
     }
@@ -167,7 +177,6 @@ async function createDriverAccount(io, req, res, next) {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create new driver account
     const newDriver = await Driver.create({
       firstName,
       lastName,
@@ -183,9 +192,9 @@ async function createDriverAccount(io, req, res, next) {
       status: false,
       review: false,
       profilePicture: profilePicture || "",
+      ...(availability !== undefined && { availability }),
     });
 
-    // Remove from pending registrations
     await PendingDriver.deleteOne({ email });
 
     await Notification.create({
@@ -197,7 +206,7 @@ async function createDriverAccount(io, req, res, next) {
 
     const notifications = await Notification.find();
     io.emit("notification", notifications);
-    // Generate a JWT token
+
     const token = jwt.sign(
       { id: newDriver._id, email: newDriver.email },
       JWT_SECRET,
@@ -207,15 +216,18 @@ async function createDriverAccount(io, req, res, next) {
     return res.status(201).json({
       token,
       message: "Driver account created successfully.",
-      data: newDriver,
+      data: sanitizeDriver(newDriver),
     });
   } catch (error) {
     next(error);
   }
 }
 
-//oauth registration
-
+/**
+ * OAuth registration, step 1: store initial data.
+ * The password is hashed here so plain text is never stored. If the OAuth
+ * user has no password, a random one is generated (the schema requires one).
+ */
 const initialRegistration = async (req, res, next) => {
   try {
     const { email, firstName, lastName, password, profilePicture } = req.body;
@@ -223,34 +235,43 @@ const initialRegistration = async (req, res, next) => {
       return res.status(400).json({ message: "Email is required" });
     }
 
-    // Check if email is already registered
     const existingDriver = await Driver.findOne({ email });
     if (existingDriver) {
       return res.status(400).json({ message: "Email is already registered" });
     }
-    const existingDrivers = await PendingDriver.findOne({ email });
-    if (existingDrivers) {
+
+    const existingPending = await PendingDriver.findOne({ email });
+    if (existingPending) {
       return res.status(400).json({ message: "Registration is pending" });
     }
 
-    const postData = {
+    const rawPassword = password || crypto.randomBytes(32).toString("hex");
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+    const pendingDriver = await PendingDriver.create({
       email,
       firstName,
       lastName,
-      password,
+      password: hashedPassword,
       profilePicture: profilePicture || "",
-      verified: true
-    };
-    const pendingDriver = await PendingDriver.create(postData);
+      verified: true,
+    });
+
+    const { password: _pw, ...safePending } = pendingDriver.toObject();
 
     return res.status(200).json({
       message: "Initial registration data stored successfully.",
-      data: pendingDriver,
+      data: safePending,
     });
   } catch (error) {
     next(error);
   }
 };
+
+/**
+ * OAuth registration, final step.
+ * `availability` is optional.
+ */
 async function createOauthDriverAccount(io, req, res, next) {
   try {
     const {
@@ -261,6 +282,7 @@ async function createOauthDriverAccount(io, req, res, next) {
       workCity,
       proofOfIdentity,
       licenseFile,
+      availability,
     } = req.body;
 
     if (
@@ -277,28 +299,34 @@ async function createOauthDriverAccount(io, req, res, next) {
         .json({ message: "All required fields must be provided." });
     }
 
+    if (availability !== undefined && typeof availability !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "Availability must be true or false" });
+    }
+
     const registration = await PendingDriver.findOne({ email });
     if (!registration) {
       return res.status(400).json({ message: "No pending creation" });
     }
 
-    const existingMarketRep = await Driver.findOne({ phoneNumber });
-    if (existingMarketRep) {
+    const existingPhone = await Driver.findOne({ phoneNumber });
+    if (existingPhone) {
       return res
         .status(400)
         .json({ message: "Phone number is already registered" });
     }
+
     if (!registration.vehicleType) {
       return res.status(400).json({ message: "Vehicle type is missing." });
     }
-    const hashedPassword = await bcrypt.hash(registration.password, 10);
 
-    // Create new driver account
     const newDriver = await Driver.create({
       firstName: registration.firstName,
       lastName: registration.lastName,
       email,
-      password: hashedPassword,
+      // Already hashed in initialRegistration
+      password: registration.password,
       phoneNumber,
       dateOfBirth,
       address,
@@ -309,9 +337,9 @@ async function createOauthDriverAccount(io, req, res, next) {
       status: false,
       review: false,
       profilePicture: registration.profilePicture || "",
+      ...(availability !== undefined && { availability }),
     });
 
-    // Remove from pending registrations
     await PendingDriver.deleteOne({ email });
 
     await Notification.create({
@@ -323,7 +351,7 @@ async function createOauthDriverAccount(io, req, res, next) {
 
     const notifications = await Notification.find();
     io.emit("notification", notifications);
-    // Generate a JWT token
+
     const token = jwt.sign(
       { id: newDriver._id, email: newDriver.email },
       JWT_SECRET,
@@ -333,12 +361,13 @@ async function createOauthDriverAccount(io, req, res, next) {
     return res.status(201).json({
       token,
       message: "Driver account created successfully.",
-      data: newDriver,
+      data: sanitizeDriver(newDriver),
     });
   } catch (error) {
     next(error);
   }
 }
+
 module.exports = {
   requestOTP,
   verifyOTP,

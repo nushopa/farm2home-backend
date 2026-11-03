@@ -21,7 +21,6 @@ const DriverModel = new Schema(
     password: {
       type: String,
       required: true,
-      unique: true,
     },
     phoneNumber: {
       type: String,
@@ -65,7 +64,13 @@ const DriverModel = new Schema(
     profilePicture: {
       type: String,
     },
+    // Optional. Defaults to unavailable until the driver goes online.
+    availability: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
+
 module.exports = model("Drivers", DriverModel);

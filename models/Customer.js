@@ -86,6 +86,10 @@ const CustomerSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    availability: {
+      type: Boolean,
+      default: true, // optional, defaults to available
+    },
   },
   { timestamps: true },
 );

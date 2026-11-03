@@ -6,6 +6,7 @@ const {
   getAllDistributors,
   getSingleDistributor,
   updateProfile,
+  updateCustomerAvailability,
   getSingleCustomer,
   deleteCustomer,
   forgetPassword,
@@ -60,9 +61,12 @@ const CustomerRouter = (io) => {
    *               email: { type: string, format: email }
    *               password: { type: string, format: password }
    *               role: { type: integer }
+   *               availability:
+   *                 type: boolean
+   *                 description: Optional. Defaults to true.
    *     responses:
    *       200: { description: OTP sent }
-   *       400: { description: Missing fields }
+   *       400: { description: Missing fields or invalid availability }
    *       401: { description: Account already exists }
    */
   router.post("/create", (req, res, next) => createAccount(io, req, res, next));
@@ -150,7 +154,7 @@ const CustomerRouter = (io) => {
    *       401: { description: Invalid email or password }
    */
   router.post("/login", loginUser);
-  
+
   /**
    * @swagger
    * /logout:
@@ -255,7 +259,7 @@ const CustomerRouter = (io) => {
    * @swagger
    * /update/profile:
    *   put:
-   *     summary: Update the authenticated user's first/last name
+   *     summary: Update the authenticated user's name and/or availability
    *     tags: [Customers]
    *     security: [{ bearerAuth: [] }]
    *     requestBody:
@@ -267,16 +271,42 @@ const CustomerRouter = (io) => {
    *             properties:
    *               fname: { type: string }
    *               lname: { type: string }
+   *               availability:
+   *                 type: boolean
+   *                 description: Optional
    *     responses:
    *       200: { description: Profile updated }
+   *       400: { description: Invalid availability }
    *       401: { description: Unauthorized }
    *       404: { description: Customer not found }
    */
-  // FIX: `id` is no longer accepted from the request body — updateProfile
-  // now derives the target user from the authenticated session
-  // (req.userId), closing an IDOR hole where any caller could edit anyone's
-  // name by passing their id.
+  // `id` is not accepted from the request body: updateProfile derives the
+  // target user from the authenticated session (req.userId).
   router.put("/update/profile", updateProfile);
+
+  /**
+   * @swagger
+   * /customer/availability:
+   *   patch:
+   *     summary: Set the authenticated user's availability
+   *     tags: [Customers]
+   *     security: [{ bearerAuth: [] }]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [availability]
+   *             properties:
+   *               availability: { type: boolean }
+   *     responses:
+   *       200: { description: Availability updated }
+   *       400: { description: availability must be a boolean }
+   *       401: { description: Unauthorized }
+   *       404: { description: Customer not found }
+   */
+  router.patch("/customer/availability", updateCustomerAvailability);
 
   /**
    * @swagger
@@ -298,8 +328,12 @@ const CustomerRouter = (io) => {
    *               id_type: { type: string }
    *               profile_picture: { type: string }
    *               proof_of_identity: { type: string }
+   *               availability:
+   *                 type: boolean
+   *                 description: Optional
    *     responses:
    *       200: { description: Profile updated }
+   *       400: { description: Invalid availability }
    *       403: { description: Not a market representative }
    *       404: { description: Market representative not found }
    */
@@ -420,7 +454,7 @@ const CustomerRouter = (io) => {
    *       404: { description: Distributor not found }
    */
   router.patch("/customers/distributors/:id/status", (req, res, next) =>
-    updateDistributorStatus(io, req, res, next)
+    updateDistributorStatus(io, req, res, next),
   );
 
   /**

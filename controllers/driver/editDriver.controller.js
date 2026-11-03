@@ -1,62 +1,70 @@
 const Driver = require("../../models/Driver");
 
+const sanitizeDriver = (driver) => {
+  const obj = driver.toObject();
+  delete obj.password;
+  return obj;
+};
+
 module.exports.editDriver = async (req, res, next) => {
   const { id } = req.params;
   const {
-    fullName,
+    firstName,
+    lastName,
     email,
     phoneNumber,
     dateOfBirth,
-    homeAddress,
-    licenseNumber,
-    licenseClass,
-    issuingState,
-    expirationDate,
+    address,
+    workCity,
     vehicleType,
-    licensePlate,
+    proofOfIdentity,
     licenseFile,
-    pastExperience,
     status,
     profilePicture,
+    availability,
   } = req.body;
 
   try {
-    // Check if the driver exists
     const driver = await Driver.findById(id);
     if (!driver) {
       return res.status(404).send({ message: "Driver not found!" });
     }
 
-    // Restrict toggling status if review is false
+    // Status can only be toggled once the driver has been reviewed
     if (status !== undefined && !driver.review) {
-      return res
-        .status(400)
-        .send({ message: "Status cannot be updated unless the review is true!" });
+      return res.status(400).send({
+        message: "Status cannot be updated unless the review is true!",
+      });
     }
 
-    // Update the driver information except the password
-    driver.fullName = fullName || driver.fullName;
+    if (availability !== undefined && typeof availability !== "boolean") {
+      return res
+        .status(400)
+        .send({ message: "Availability must be true or false" });
+    }
+
+    driver.firstName = firstName || driver.firstName;
+    driver.lastName = lastName || driver.lastName;
     driver.email = email || driver.email;
     driver.phoneNumber = phoneNumber || driver.phoneNumber;
     driver.dateOfBirth = dateOfBirth || driver.dateOfBirth;
-    driver.homeAddress = homeAddress || driver.homeAddress;
-    driver.licenseNumber = licenseNumber || driver.licenseNumber;
-    driver.licenseClass = licenseClass || driver.licenseClass;
-    driver.issuingState = issuingState || driver.issuingState;
-    driver.expirationDate = expirationDate || driver.expirationDate;
+    driver.address = address || driver.address;
+    driver.workCity = workCity || driver.workCity;
     driver.vehicleType = vehicleType || driver.vehicleType;
-    driver.licensePlate = licensePlate || driver.licensePlate;
+    driver.proofOfIdentity = proofOfIdentity || driver.proofOfIdentity;
     driver.licenseFile = licenseFile || driver.licenseFile;
-    driver.pastExperience = pastExperience || driver.pastExperience;
-    driver.status = status !== undefined ? status : driver.status;
     driver.profilePicture = profilePicture || driver.profilePicture;
+    driver.status = status !== undefined ? status : driver.status;
 
-    // Save the updated driver information
+    if (availability !== undefined) {
+      driver.availability = availability;
+    }
+
     await driver.save();
 
     res.status(200).send({
       message: "Driver information updated successfully!",
-      driver,
+      driver: sanitizeDriver(driver),
     });
   } catch (error) {
     next(error);
@@ -64,28 +72,76 @@ module.exports.editDriver = async (req, res, next) => {
 };
 
 module.exports.updateDriverReviewStatus = async (req, res, next) => {
-    const { id } = req.params; // Driver ID from URL params
-    const { review } = req.body; // Review status from request body
-  
-    try {
-      // Check if the driver exists
-      const driver = await Driver.findById(id);
-      if (!driver) {
-        return res.status(404).send({ message: "Driver not found!" });
-      }
-  
-      // Update the review status
-      driver.review = review;
-  
-      // Save the changes to the database
-      await driver.save();
-  
-      res.status(200).send({
-        message: `Driver review status updated successfully to ${review ? "verified" : "under review or suspended"}!`,
-        driver,
-      });
-    } catch (error) {
-      next(error);
+  const { id } = req.params;
+  const { review } = req.body;
+
+  try {
+    if (typeof review !== "boolean") {
+      return res
+        .status(400)
+        .send({ message: "Review must be true or false" });
     }
-  };
-  
+
+    const driver = await Driver.findById(id);
+    if (!driver) {
+      return res.status(404).send({ message: "Driver not found!" });
+    }
+
+    driver.review = review;
+    await driver.save();
+
+    res.status(200).send({
+      message: `Driver review status updated successfully to ${
+        review ? "verified" : "under review or suspended"
+      }!`,
+      driver: sanitizeDriver(driver),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Toggle a driver's availability (online/offline).
+ * Protect this route with your auth middleware.
+ */
+module.exports.updateDriverAvailability = async (req, res, next) => {
+  const { id } = req.params;
+  const { availability } = req.body;
+
+  try {
+    if (typeof availability !== "boolean") {
+      return res
+        .status(400)
+        .send({ message: "Availability must be true or false" });
+    }
+
+    // A driver may only change their own availability.
+    // req.driverId is set by driverAuthMiddleware from the JWT.
+    if (!req.driverId) {
+      return res.status(401).send({ message: "Unauthorized" });
+    }
+    if (String(req.driverId) !== String(id)) {
+      return res.status(403).send({
+        message: "You can only update your own availability",
+      });
+    }
+
+    const driver = await Driver.findByIdAndUpdate(
+      id,
+      { availability },
+      { returnDocument: "after" }
+    ).select("-password");
+
+    if (!driver) {
+      return res.status(404).send({ message: "Driver not found!" });
+    }
+
+    res.status(200).send({
+      message: `Driver is now ${availability ? "available" : "unavailable"}`,
+      driver,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
