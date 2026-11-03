@@ -24,7 +24,7 @@ const {
 const {
   deleteDriver,
 } = require("../controllers/driver/deleteDriver.controller");
-const { driverAuthMiddleware } = require("../middleware/driverAuthMiddleware");
+const { driverAuthMiddleware } = require("../middleware/authMiddleware");
 
 /**
  * @swagger
