@@ -3,11 +3,11 @@ const axios = require("axios");
 const Order = require("../models/Order");
 const PendingOrder = require("../models/PendingOrder");
 const Cart = require("../models/Cart");
+const PriceList = require("../models/PriceList");
 
 const SQUAD_SECRET_KEY = process.env.SQUAD_SECRET_KEY;
 const SQUAD_BASE_URL = process.env.SQUAD_BASE_URL;
 
-const DELIVERY_FEE = 500;
 const SERVICE_CHARGE_RATE = 0.15;
 
 const FRONTEND_URL = process.env.F_URL;
@@ -25,6 +25,26 @@ function isTerminalFailureStatus(status) {
 }
 
 async function buildPendingOrder(customer_id, address) {
+  const city = typeof address?.city === "string" ? address.city.trim() : "";
+  if (!city) {
+    const err = new Error("A delivery city is required.");
+    err.status = 422;
+    err.isValidation = true;
+    throw err;
+  }
+
+  const deliveryPrice = await PriceList.findOne({ city });
+  if (
+    !deliveryPrice ||
+    !Number.isFinite(deliveryPrice.estimatePrice) ||
+    deliveryPrice.estimatePrice < 0
+  ) {
+    const err = new Error("Delivery is not available in the selected city.");
+    err.status = 422;
+    err.isValidation = true;
+    throw err;
+  }
+
   const cartItems = await Cart.find({ customer_id }).populate("product_id");
   if (!cartItems.length) {
     const err = new Error("Cart is empty.");
@@ -39,7 +59,7 @@ async function buildPendingOrder(customer_id, address) {
   );
 
   const subservice = Math.round(subtotal * SERVICE_CHARGE_RATE);
-  const amount = Math.round(subtotal + DELIVERY_FEE + subservice);
+  const amount = Math.round(subtotal + deliveryPrice.estimatePrice + subservice);
 
   const pending = await PendingOrder.create({
     customer_id,
@@ -98,7 +118,7 @@ async function initializeTransaction(req, res) {
     });
   } catch (error) {
     if (error.isValidation) {
-      return res.status(400).send({ message: error.message });
+      return res.status(error.status || 400).send({ message: error.message });
     }
     console.error(
       "initializeTransaction error:",

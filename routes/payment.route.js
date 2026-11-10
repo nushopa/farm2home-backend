@@ -20,8 +20,8 @@ const PaymentRouter = () => {
    *   post:
    *     summary: Initialize a Squad hosted-checkout transaction for the customer's current cart
    *     description: >
-   *       Computes the order total server-side from the customer's cart (subtotal + delivery fee + service
-   *       charge), creates a PendingOrder record, and starts a Squad transaction. The returned `reference`
+   *       Computes the order total server-side from the customer's cart (subtotal + the selected city's
+   *       configured delivery fee + service charge), creates a PendingOrder record, and starts a Squad transaction. The returned `reference`
    *       and `checkout_url` should be used to redirect the customer (web) or open a WebView pointed at
    *       `checkout_url` (mobile). The actual order is only created once the `/webhook/squad` endpoint
    *       confirms payment, or once `/payment/status/:reference` re-verifies it — this route never creates

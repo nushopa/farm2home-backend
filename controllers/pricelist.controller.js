@@ -4,15 +4,21 @@ async function addPriceList(req, res, next) {
   try {
     const { city, estimatePrice } = req.body;
 
-    if (!city || !estimatePrice) {
-      return res.status(422).send({ message: "All fields are required!" });
+    if (
+      typeof city !== "string" ||
+      !city.trim() ||
+      !Number.isFinite(estimatePrice) ||
+      estimatePrice < 0
+    ) {
+      return res
+        .status(422)
+        .send({ message: "A city and a valid non-negative delivery price are required." });
     }
 
-    PriceList.create({ city, estimatePrice })
-      .then((data) => res.status(201).send({ data }))
-      .catch(() => res.status(500).send({ message: "An error occurred!" }));
-  } catch (e) {
-    next(e);
+    const data = await PriceList.create({ city: city.trim(), estimatePrice });
+    return res.status(201).send({ data });
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -27,11 +33,13 @@ async function getPriceList(req, res, next) {
 
 async function deleteCity(req, res, next) {
   try {
-    let result = await PriceList.findByIdAndDelete(req.params.id);
+    const result = await PriceList.findByIdAndDelete(req.params.id);
+    if (!result) {
+      return res.status(404).send({ message: "City not found." });
+    }
     return res.status(200).send({ message: "Deleted!" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: "Failed to delete city" });
+    next(error);
   }
 }
 
@@ -43,8 +51,7 @@ async function getCityById(req, res, next) {
     }
     return res.status(200).send({ city });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: "Failed to get city" });
+    next(error);
   }
 }
 
@@ -52,15 +59,27 @@ async function editCity(req, res, next) {
   try {
     const { city, estimatePrice, id } = req.body;
 
-    if (!city || !estimatePrice) {
-      return res.status(422).send({ message: "All fields are required!" });
+    if (
+      typeof id !== "string" ||
+      !id ||
+      typeof city !== "string" ||
+      !city.trim() ||
+      !Number.isFinite(estimatePrice) ||
+      estimatePrice < 0
+    ) {
+      return res
+        .status(422)
+        .send({ message: "A city, id, and valid non-negative delivery price are required." });
     }
 
-    let currentPricelist = await PriceList.findByIdAndUpdate(
+    const currentPricelist = await PriceList.findByIdAndUpdate(
       id,
-      { city, estimatePrice },
-      { new: true }
+      { city: city.trim(), estimatePrice },
+      { new: true, runValidators: true }
     );
+    if (!currentPricelist) {
+      return res.status(404).send({ message: "City not found." });
+    }
     return res
       .status(200)
       .send({
@@ -68,10 +87,7 @@ async function editCity(req, res, next) {
         data: currentPricelist,
       });
   } catch (error) {
-    console.error(error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to update price list" });
+    next(error);
   }
 }
 

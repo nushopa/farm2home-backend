@@ -7,6 +7,8 @@ const allowedOrigins = [
   process.env.ADMIN_URL,
   process.env.D_URL || "https://rider.nushopa.com",
   "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
 ].filter(Boolean);
 
 // Log once at startup so it's visible in Render's deploy logs

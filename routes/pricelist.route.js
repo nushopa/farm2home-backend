@@ -6,8 +6,15 @@ const {
   editCity,
   getCityById,
 } = require("../controllers/pricelist.controller");
+const { authMiddleware } = require("../middleware/authMiddleware");
 
 const priceListRouter = Router();
+const requireAdmin = (req, res, next) => {
+  if (req.role !== 5000) {
+    return res.status(403).send({ message: "Admin access required." });
+  }
+  return next();
+};
 
 /**
  * @swagger
@@ -21,6 +28,8 @@ const priceListRouter = Router();
  * /pricelist/add:
  *   post:
  *     summary: Add a city price entry
+ *     security:
+ *       - bearerAuth: []
  *     tags: [PriceList]
  *     requestBody:
  *       required: true
@@ -43,7 +52,7 @@ const priceListRouter = Router();
  *                 data: { $ref: '#/components/schemas/PriceListEntry' }
  *       422: { description: Missing fields }
  */
-priceListRouter.post("/add", addPriceList);
+priceListRouter.post("/add", authMiddleware, requireAdmin, addPriceList);
 
 /**
  * @swagger
@@ -70,6 +79,8 @@ priceListRouter.get("/", getPriceList);
  * /pricelist/delete/{id}:
  *   delete:
  *     summary: Delete a city price entry
+ *     security:
+ *       - bearerAuth: []
  *     tags: [PriceList]
  *     parameters:
  *       - in: path
@@ -79,13 +90,15 @@ priceListRouter.get("/", getPriceList);
  *     responses:
  *       200: { description: Deleted }
  */
-priceListRouter.delete("/delete/:id", deleteCity);
+priceListRouter.delete("/delete/:id", authMiddleware, requireAdmin, deleteCity);
 
 /**
  * @swagger
  * /pricelist/edit:
  *   put:
- *     summary: Edit a city price entry
+ *     summary: Update a city's delivery fee (admin only)
+ *     security:
+ *       - bearerAuth: []
  *     tags: [PriceList]
  *     requestBody:
  *       required: true
@@ -100,9 +113,12 @@ priceListRouter.delete("/delete/:id", deleteCity);
  *               estimatePrice: { type: number }
  *     responses:
  *       200: { description: Updated }
- *       422: { description: Missing fields }
+ *       401: { description: Authentication required }
+ *       403: { description: Admin role required }
+ *       404: { description: City not found }
+ *       422: { description: Invalid city, id, or delivery fee }
  */
-priceListRouter.put("/edit", editCity);
+priceListRouter.put("/edit", authMiddleware, requireAdmin, editCity);
 
 /**
  * @swagger

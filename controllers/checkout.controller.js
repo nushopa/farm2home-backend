@@ -29,33 +29,34 @@ async function addAdress(req, res, next) {
     return res.status(422).send({ message: "All fields are required!" });
   }
 
-  CheckOut.create({
-    customer_id,
-    address,
-    directions,
-    first_name,
-    last_name,
-    email,
-    phone_number,
-    state,
-    city,
-    additional_phone_number,
-  })
-    .then(() => {
-      PriceList.findOne({ city })
-        .then((data) => {
-          const { estimatePrice, ...others } = data._doc;
-          res.status(200).send({ estimatePrice });
-        })
-        .catch(() =>
-          res
-            .status(422)
-            .send({ message: "An error occured please try again later!" }),
-        );
-    })
-    .catch(() =>
-      res.status(400).send({ message: "An unknown error occured..." }),
-    );
+  try {
+    const cityPrice = await PriceList.findOne({ city });
+    if (!cityPrice) {
+      return res.status(422).send({
+        message: "Delivery is not available in the selected city.",
+      });
+    }
+
+    await CheckOut.create({
+      customer_id,
+      address,
+      directions,
+      first_name,
+      last_name,
+      email,
+      phone_number,
+      state,
+      city,
+      additional_phone_number,
+    });
+
+    return res.status(200).send({
+      price: cityPrice.estimatePrice,
+      estimatePrice: cityPrice.estimatePrice,
+    });
+  } catch (error) {
+    next(error);
+  }
 }
 
 async function addressBook(req, res, next) {
