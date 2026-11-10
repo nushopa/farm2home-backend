@@ -1,4 +1,4 @@
-require("dotenv").config(); // local database. See Step 5 for production.
+require("dotenv").config({ path: ".env.production" }); // local database. See Step 5 for production.
 const mongoose = require("mongoose");
 const Customer = require("../models/Customer");
 

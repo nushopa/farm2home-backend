@@ -247,23 +247,27 @@ app.use((req, res) => {
   res.status(404).send("Page not found!");
 });
 
-if (process.env.NODE_ENV === "production") {
-  console.log("🔒 Running in PRODUCTION mode");
-  if (!process.env.PORT) {
-    console.warn("⚠️  No PORT defined in .env.production — using default 3000");
+if (require.main === module) {
+  if (process.env.NODE_ENV === "production") {
+    console.log("🔒 Running in PRODUCTION mode");
+    if (!process.env.PORT) {
+      console.warn("⚠️  No PORT defined in .env.production — using default 3000");
+    }
+  } else {
+    console.log("🔧 Running in LOCAL/DEVELOPMENT mode");
   }
-} else {
-  console.log("🔧 Running in LOCAL/DEVELOPMENT mode");
+
+  connectDB()
+    .then(() => {
+      server.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+        console.log(`📄 Swagger docs available at http://localhost:${PORT}/api-docs`);
+      });
+    })
+    .catch((error) => {
+      console.error("Database connection error:", error);
+      process.exit(1);
+    });
 }
 
-connectDB()
-  .then(() => {
-    server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`📄 Swagger docs available at http://localhost:${PORT}/api-docs`);
-    });
-  })
-  .catch((error) => {
-    console.error("Database connection error:", error);
-    process.exit(1);
-  });
+module.exports = { app, server, io };
