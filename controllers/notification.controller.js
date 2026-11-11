@@ -1,6 +1,7 @@
 const Notification = require("../models/Notification");
 const Customer = require("../models/Customer");
 const { sendPushNotification } = require("../lib/util/sendPush");
+const { getOptionalUser } = require("../lib/util/optionalAuth");
 
 const MARKET_REP_ROLE = 6000;
 
@@ -23,19 +24,24 @@ const getAllNotifications = async (req, res) => {
 const getCustomerNotifications = async (req, res) => {
   const { customerId } = req.params;
   if (!customerId) {
-    return res.status(400).json({ success: false, message: "Customer ID is required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Customer ID is required" });
   }
   try {
     const notifications = await Notification.find({
       $or: [
         { customer_id: customerId },
+        { recipient_id: customerId, recipient_model: "Customer" },
         { customer_id: null, category: { $in: ["marketing", "new_product"] } },
       ],
     }).sort({ createdAt: -1 });
     return res.status(200).json(notifications);
   } catch (error) {
     console.error("Error fetching customer notifications:", error);
-    return res.status(500).json({ success: false, message: "Error fetching notifications" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Error fetching notifications" });
   }
 };
 
@@ -49,8 +55,25 @@ const getMarketRepNotifications = async (req, res) => {
       });
     }
     const notifications = await Notification.find({
-      customer_id: distributorId,
-      category: { $in: ["order_assigned", "driver_nearby", "commission_added"] },
+      $or: [
+        {
+          customer_id: distributorId,
+          category: {
+            $in: ["order_assigned", "driver_nearby", "commission_added"],
+          },
+        },
+        {
+          recipient_id: distributorId,
+          recipient_model: "Distributor",
+        },
+        {
+          recipient_id: distributorId,
+          recipient_model: "Customer",
+          category: {
+            $in: ["order_assigned", "driver_nearby", "commission_added"],
+          },
+        },
+      ],
     }).sort({ createdAt: -1 });
     return res.status(200).json(notifications);
   } catch (error) {
@@ -62,8 +85,42 @@ const getMarketRepNotifications = async (req, res) => {
   }
 };
 
+const getDriverNotifications = async (req, res) => {
+  const { driverId } = req.params;
+  if (!driverId) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Driver ID is required" });
+  }
+
+  try {
+    const user = await getOptionalUser(req);
+    if (
+      user?.userModel !== "Drivers" ||
+      String(user.userId) !== String(driverId)
+    ) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    const notifications = await Notification.find({
+      recipient_id: driverId,
+      recipient_model: "Drivers",
+    }).sort({ createdAt: -1 });
+    return res.status(200).json(notifications);
+  } catch (error) {
+    console.error("Error fetching driver notifications:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching notifications",
+    });
+  }
+};
+
 const emitMarketRepNotification = async (io, distributorId, notification) => {
-  io.to(`marketrep_${distributorId}`).emit("marketrep_notification", notification);
+  io.to(`marketrep_${distributorId}`).emit(
+    "marketrep_notification",
+    notification,
+  );
 
   try {
     await sendPushNotification({
@@ -127,14 +184,20 @@ const markNotificationRead = async (req, res) => {
 const markAllNotificationsRead = async (req, res) => {
   const { customerId } = req.params;
   if (!customerId) {
-    return res.status(400).json({ success: false, message: "Customer ID is required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Customer ID is required" });
   }
   try {
     const result = await Notification.updateMany(
       {
         $or: [
           { customer_id: customerId },
-          { customer_id: null, category: { $in: ["marketing", "new_product"] } },
+          { recipient_id: customerId, recipient_model: "Customer" },
+          {
+            customer_id: null,
+            category: { $in: ["marketing", "new_product"] },
+          },
         ],
         read: false,
       },
@@ -185,6 +248,7 @@ module.exports = {
   getAllNotifications,
   getCustomerNotifications,
   getMarketRepNotifications,
+  getDriverNotifications,
   markNotificationRead,
   markAllNotificationsRead,
   deleteNotification,

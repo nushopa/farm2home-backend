@@ -9,6 +9,8 @@ const crypto = require("crypto");
 const { sendOrderConfirmationEmail } = require("../lib/sendOrderEmail");
 const { sendOrderAssignedEmail } = require("../lib/sendAssignmentEmail");
 const { sendPushNotification } = require("../lib/util/sendPush");
+const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
+const Driver = require("../models/Driver");
 
 function getProductPrice(product) {
   return product?.product_price ?? 0;
@@ -115,15 +117,14 @@ async function addOrder(io, req, res, next) {
     const { items, shortSummary } = buildOrderSummary(products, productMap);
     const summaryLine = `${shortSummary} \u2022 Total ${formatNaira(amount_paid)} \u2022 Delivery code ${deliveryCode}`;
 
-    const adminNotification = await Notification.create({
+    await notifyAdminAction(io, {
       category: "order",
       orderId: orderID,
       title: "A new order has been placed",
-      customer_id,
-      full_name: `${user?.first_name} ${user?.last_name}`,
-      message: `${user?.first_name} ${user?.last_name} placed an order!`,
+      message: `${user?.first_name || "A customer"} ${user?.last_name || ""} placed order ${orderID}.`.trim(),
+      metadata: { customerId: String(customer_id) },
+      channels: ["push", "email"],
     });
-    io.to("admin").emit("notification", adminNotification);
 
     const customerNotification = await Notification.create({
       category: "order_placed",
@@ -136,7 +137,7 @@ async function addOrder(io, req, res, next) {
     io.to(`customer_${customer_id}`).emit("notification", customerNotification);
 
     if (order) {
-      const customerEmail = order.address.email;
+      const customerEmail = order.address.email || user?.email;
       const customerFirstName = order.address.first_name;
       await sendOrderConfirmationEmail(
         customerFirstName,
@@ -253,35 +254,14 @@ async function updateOrderStatus(io, req, res, next) {
       },
     };
 
-    const message = statusMessages[status];
-
-    if (message && order.customer_id) {
-      const notification = await Notification.create({
-        category: "order_status",
-        orderId: order.orderID,
-        title: message.title,
-        customer_id: order.customer_id,
-        message: message.body,
-        metadata: { status },
-      });
-      io.to(`customer_${order.customer_id}`).emit("notification", notification);
-
-      try {
-        await sendPushNotification({
-          userId: order.customer_id,
-          title: message.title,
-          body: message.body,
-          data: {
-            type: "order-status",
-            orderId: order.orderID,
-            status,
-            notificationId: notification._id.toString(),
-          },
-          kind: "transactional",
-        });
-      } catch (pushErr) {
-        console.error("Failed to send order-status push:", pushErr);
-      }
+    const message = statusMessages[status] || {
+      title: "Order status updated",
+      body: `Order ${order.orderID} status changed to ${status}.`,
+    };
+    try {
+      await notifyOrderStatus(io, order, status, message);
+    } catch (notifyErr) {
+      console.error("Failed to notify order-status recipients:", notifyErr);
     }
 
     res.status(200).send({ order });
@@ -349,33 +329,13 @@ async function signOrder(io, req, res, next) {
     }
     await order.save();
 
-    const notification = await Notification.create({
-      category: "order_status",
-      orderId: orderID,
-      title: "Order delivered \u2705",
-      customer_id: order.customer_id,
-      message: "Your order has been successfully signed and delivered.",
-    });
-
-    io.to(`customer_${order.customer_id}`).emit("notification", notification);
-
     try {
-      if (order.customer_id) {
-        await sendPushNotification({
-          userId: order.customer_id,
-          title: "Order delivered \u2705",
-          body: "Your order has arrived. Enjoy!",
-          data: {
-            type: "order-status",
-            orderId: orderID,
-            status: "Delivered",
-            notificationId: notification._id.toString(),
-          },
-          kind: "transactional",
-        });
-      }
-    } catch (pushErr) {
-      console.error("Failed to send order-delivered push:", pushErr);
+      await notifyOrderStatus(io, order, "Delivered", {
+        title: "Order delivered \u2705",
+        body: "Your order has arrived. Enjoy!",
+      });
+    } catch (notifyErr) {
+      console.error("Failed to notify delivery-status recipients:", notifyErr);
     }
 
     res.status(200).send({ message: "Order signed successfully.", order });
@@ -385,10 +345,75 @@ async function signOrder(io, req, res, next) {
   }
 }
 
+async function notifyOrderStatus(io, order, status, message) {
+  const metadata = { status };
+  const orderId = order.orderID;
+  const customer = await Customer.findById(order.customer_id)
+    .select("_id email first_name last_name role")
+    .lean();
+
+  if (customer) {
+    await notifyUser(io, {
+      ...customer,
+      email: customer.email || order.address?.email,
+    }, {
+      category: "order_status",
+      orderId,
+      title: message.title,
+      message: message.body,
+      metadata,
+      channels: ["push", "email"],
+    });
+  }
+
+  await notifyAdminAction(io, {
+    category: "order_status",
+    orderId,
+    title: message.title,
+    message: `Order ${orderId}: ${message.body}`,
+    metadata,
+    channels: ["push", "email"],
+  });
+
+  if (order.distributor_assigned) {
+    const distributor = await Customer.findById(order.distributor_assigned)
+      .select("_id email first_name last_name role")
+      .lean();
+    if (distributor) {
+      await notifyUser(io, distributor, {
+        category: "order_status",
+        orderId,
+        title: message.title,
+        message: `Order ${orderId}: ${message.body}`,
+        metadata,
+        channels: ["push", "email"],
+      });
+    }
+  }
+
+  if (order.driver_assigned) {
+    const driver = await Driver.findById(order.driver_assigned)
+      .select("_id email firstName lastName")
+      .lean();
+    if (driver) {
+      await notifyUser(io, driver, {
+        userModel: "Drivers",
+        category: "order_status",
+        orderId,
+        title: message.title,
+        message: `Order ${orderId}: ${message.body}`,
+        metadata,
+        channels: ["push", "email"],
+      });
+    }
+  }
+}
+
 module.exports = {
   addOrder,
   getAllOrders,
   updateOrderStatus,
+  notifyOrderStatus,
   getOrdersByOrderId,
   getOrdersByCustomer,
   signOrder,

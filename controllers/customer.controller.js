@@ -6,6 +6,7 @@ const Forget = require("../models/Forget");
 const { sendEmail } = require("../lib/util/sendEmail");
 const { authMiddleware } = require("../middleware/authMiddleware");
 const Notification = require("../models/Notification");
+const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
 const TempUser = require("../models/tempUser");
 const BlacklistedToken = require("../models/BlacklistedToken");
 const passport = require("../config/passport");
@@ -212,6 +213,19 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
 
     const notifications = await Notification.find();
     io.emit("notification", notifications);
+    if (data.role === 6000) {
+      try {
+        await notifyAdminAction(io, {
+          category: "market_rep_onboarding",
+          title: "New market rep registered",
+          message: `${data.first_name} ${data.last_name} created a market representative account.`,
+          metadata: { marketRepId: String(data._id) },
+          channels: ["push"],
+        });
+      } catch (notifyErr) {
+        console.error("Failed to notify admins about new market rep:", notifyErr);
+      }
+    }
 
     // Web: httpOnly cookie only. Mobile: token returned in the body.
     const { platform, token } = await issueAuth(req, res, {
@@ -488,6 +502,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
         proof_of_identity,
         availability,
       } = req.body;
+      const profileWasComplete = marketRep.profile_completed;
 
       if (availability !== undefined && typeof availability !== "boolean") {
         return res
@@ -515,6 +530,20 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
       marketRep.profile_completed = isMarketRepProfileComplete(marketRep);
 
       await marketRep.save();
+
+      if (!profileWasComplete && marketRep.profile_completed) {
+        try {
+          await notifyAdminAction(io, {
+            category: "market_rep_profile",
+            title: "Market rep profile completed",
+            message: `${marketRep.first_name} ${marketRep.last_name} completed their profile.`,
+            metadata: { marketRepId: String(marketRep._id) },
+            channels: ["push"],
+          });
+        } catch (notifyErr) {
+          console.error("Failed to notify admins about completed market rep profile:", notifyErr);
+        }
+      }
 
       const { password, ...profileData } = marketRep.toObject();
 
@@ -569,43 +598,20 @@ module.exports.updateDistributorStatus = async (io, req, res, next) => {
 
       const { password, ...profileData } = distributor.toObject();
 
-      // --- Email notification ---
-      try {
-        const isApproved = status === "approved";
-        const subject = isApproved
-          ? "Your Nushopa Distributor Account Has Been Approved"
-          : "Update on Your Nushopa Distributor Application";
-        const emailFileName = isApproved
-          ? "distributorApprovedTemp"
-          : "distributorRejectedTemp";
-
-        const dataDetails = {
-          first_name: distributor.first_name,
-          last_name: distributor.last_name,
-          email: distributor.email,
-          reason: reason || null, // optional rejection reason
-        };
-
-        await sendEmail(distributor.email, dataDetails, subject, emailFileName);
-      } catch (emailErr) {
-        console.error("Failed to send status-update email:", emailErr);
-      }
-
-      // --- In-app notification ---
-      try {
-        await Notification.create({
-          title:
-            status === "approved"
-              ? "Distributor account approved"
-              : "Distributor account rejected",
-          full_name: `${distributor.first_name.trim()} ${distributor.last_name.trim()}`,
-          category: "distributor-status-update",
+      if (status !== "pending") {
+        const approved = status === "approved";
+        const title = approved
+          ? "Market rep onboarding approved"
+          : "Market rep onboarding declined";
+        await notifyUser(io, distributor, {
+          category: "onboarding_status",
+          title,
+          message: approved
+            ? "Your market representative account has been approved."
+            : `Your market representative application was declined.${reason ? ` Reason: ${reason}` : ""}`,
+          metadata: { status, ...(reason ? { reason } : {}) },
+          channels: ["push", "email"],
         });
-
-        const notifications = await Notification.find();
-        io.emit("notification", notifications);
-      } catch (notifErr) {
-        console.error("Failed to create/broadcast notification:", notifErr);
       }
 
       return res.status(200).send({

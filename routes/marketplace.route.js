@@ -451,7 +451,11 @@ const MarketplaceRouters = (io) => {
    *       200: { description: Review status updated }
    *       401: { description: Unauthorized }
    */
-  MarketplaceRouter.patch("/distributor/:id/review", authMiddleware, updateDistributorReviewStatus);
+  MarketplaceRouter.patch(
+    "/distributor/:id/review",
+    authMiddleware,
+    (req, res, next) => updateDistributorReviewStatus(io, req, res, next),
+  );
 
   return MarketplaceRouter;
 };

@@ -1,7 +1,9 @@
 const Product = require("../models/Product");
 const Cart = require("../models/Cart");
-const Notification = require("../models/Notification");
-const { sendPushNotification } = require("../lib/util/sendPush");
+const {
+  notifyAdminAction,
+  notifyCustomerAudience,
+} = require("../lib/util/deliverNotification");
 
 module.exports.getAllProduct = async (req, res, next) => {
   try {
@@ -96,31 +98,25 @@ module.exports.addProduct = async (io, req, res, next) => {
       out_of_stock: out_of_stock ?? false,
     });
 
+    const notificationPayload = {
+      category: "new_product",
+      title: "New product on Nushopa \ud83d\uded2\ufe0f",
+      message: `${newProduct.product_name} just landed \u2014 check it out!`,
+      metadata: { productId: newProduct._id.toString() },
+      kind: "marketing",
+    };
     try {
-      const notification = await Notification.create({
-        category: "new_product",
-        customer_id: null,
-        title: "New product on Nushopa \ud83d\uded2\ufe0f",
-        message: `${newProduct.product_name} just landed \u2014 check it out!`,
-        metadata: { productId: newProduct._id },
-      });
-      io.emit("notification", notification);
+      await notifyCustomerAudience(io, notificationPayload);
     } catch (notifyErr) {
-      console.error(
-        "Failed to persist/broadcast new-product notification:",
-        notifyErr,
-      );
+      console.error("Failed to create/broadcast new-product notification:", notifyErr);
     }
-
     try {
-      await sendPushNotification({
-        title: "New product on Nushopa \ud83d\uded2\ufe0f",
-        body: `${newProduct.product_name} just landed \u2014 check it out!`,
-        data: { type: "new-product", productId: newProduct._id.toString() },
-        kind: "marketing",
+      await notifyAdminAction(io, {
+        ...notificationPayload,
+        channels: ["push"],
       });
-    } catch (pushErr) {
-      console.error("Failed to send new-product push:", pushErr);
+    } catch (notifyErr) {
+      console.error("Failed to notify admins about new product:", notifyErr);
     }
 
     return res.status(201).send({ data: newProduct });

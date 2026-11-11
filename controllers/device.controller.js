@@ -1,5 +1,5 @@
 const Device = require("../models/Device");
-const { getOptionalUserId } = require("../lib/util/optionalAuth");
+const { getOptionalUser } = require("../lib/util/optionalAuth");
 
 
 module.exports.registerDevice = async (req, res, next) => {
@@ -20,7 +20,7 @@ module.exports.registerDevice = async (req, res, next) => {
         .send({ message: "platform must be 'web' when registering a webPushToken" });
     }
 
-    const userId = getOptionalUserId(req); // null if logged out — that's fine
+    const user = await getOptionalUser(req); // null if logged out — that's fine
 
     const device = await Device.findOneAndUpdate(
       { deviceId },
@@ -29,7 +29,9 @@ module.exports.registerDevice = async (req, res, next) => {
         platform,
         ...(expoPushToken ? { expoPushToken } : {}),
         ...(webPushToken ? { webPushToken } : {}),
-        ...(userId ? { userId } : {}), // only overwrite when we actually have one
+        ...(user
+          ? { userId: user.userId, userModel: user.userModel }
+          : {}), // only overwrite when we actually have one
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );

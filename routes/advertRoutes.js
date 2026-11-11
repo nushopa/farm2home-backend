@@ -14,7 +14,7 @@ const upload = require("../middleware/upload");
  *     description: Homepage/banner advert management (images hosted on Cloudinary)
  */
 
-const AdvertRoute = () => {
+const AdvertRoute = (io) => {
   const router = Router();
 
   /**
@@ -43,7 +43,7 @@ const AdvertRoute = () => {
    *     responses:
    *       200: { description: All adverts, most recent first }
    */
-  router.post("/", upload.single("file"), uploadAdvert);
+  router.post("/", upload.single("file"), (req, res, next) => uploadAdvert(io, req, res, next));
   router.get("/", getAdverts);
 
   /**

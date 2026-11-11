@@ -4,8 +4,10 @@ const Customer = require("../models/Customer");
 const { sendEmail } = require("../lib/util/sendEmail");
 const Chat = require("../models/Chat");
 const { sendPushNotification } = require("../lib/util/sendPush");
+const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
+const { notifyOrderStatus } = require("./order.controller");
 
-async function assignDistributor(req, res) {
+async function assignDistributor(io, req, res) {
   const { orderID, distributorID } = req.body;
 
   if (!orderID || !distributorID) {
@@ -48,18 +50,21 @@ async function assignDistributor(req, res) {
       await order.populate("distributor_assigned");
     }
 
-    // --- Push notification to the distributor (transactional) ---
-    try {
-      await sendPushNotification({
-        userId: distributorID,
-        title: "New order assigned to you 📦",
-        body: `Order ${orderID} has been assigned to you for pickup.`,
-        data: { type: "order-assigned", orderId: orderID },
-        kind: "transactional",
-      });
-    } catch (pushErr) {
-      console.error("Failed to send distributor-assigned push:", pushErr);
-    }
+    await notifyUser(io, distributor, {
+      category: "order_assigned",
+      orderId: orderID,
+      title: "New order assigned to you 📦",
+      message: `Order ${orderID} has been assigned to you for pickup.`,
+      channels: ["push", "email"],
+    });
+    await notifyAdminAction(io, {
+      category: "order_assigned",
+      orderId: orderID,
+      title: "Market rep assigned to order",
+      message: `Order ${orderID} was assigned to ${distributor.first_name} ${distributor.last_name}.`,
+      metadata: { distributorId: String(distributorID) },
+      channels: ["push", "email"],
+    });
 
     return res
       .status(200)
@@ -171,7 +176,7 @@ async function getOrdersByDistributor(req, res, next) {
   }
 }
 
-async function confirmDeliveryCode(req, res) {
+async function confirmDeliveryCode(io, req, res) {
   const { orderID, delivery_code } = req.body;
 
   if (!orderID || !delivery_code) {
@@ -190,6 +195,15 @@ async function confirmDeliveryCode(req, res) {
       return res.
       status(404)
       .json({ message: "Order not found or invalid delivery code." });
+    }
+
+    try {
+      await notifyOrderStatus(io, order, "Confirmed", {
+        title: "Delivery confirmed",
+        body: "The delivery code was confirmed and the order is complete.",
+      });
+    } catch (notifyErr) {
+      console.error("Failed to notify delivery-confirmation recipients:", notifyErr);
     }
 
      // Return only relevant fields to avoid exposing sensitive data

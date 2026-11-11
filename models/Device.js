@@ -8,9 +8,12 @@ const deviceSchema = new mongoose.Schema(
     // Firebase Web Push (FCM) token — browser clients only.
     webPushToken: { type: String, default: null },
     platform: { type: String, enum: ["ios", "android", "web"], default: null },
-    // Which collection userId points into — lets a Device belong to either
-    // a Customer (includes distributors, role 6000) or a Driver.
-    userModel: { type: String, enum: ["Customer", "Driver"], default: "Customer" },
+    // Which collection userId points into — customers, market reps, or riders.
+    userModel: {
+      type: String,
+      enum: ["Customer", "Distributor", "Drivers"],
+      default: "Customer",
+    },
     userId: { type: mongoose.Schema.Types.ObjectId, refPath: "userModel", default: null },
     pushEnabled: { type: Boolean, default: true },
     marketingPushEnabled: { type: Boolean, default: true },

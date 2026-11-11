@@ -200,7 +200,7 @@ const OrderRouter = (io) => {
    *       400: { description: No distributor assigned }
    *       404: { description: Order not found }
    */
-  router.post("/assign", assignDistributor);
+  router.post("/assign", (req, res, next) => assignDistributor(io, req, res, next));
   router.post("/unassign", unassignDistributor);
 
   /**
@@ -241,7 +241,7 @@ const OrderRouter = (io) => {
    *       400: { description: No driver is assigned }
    *       404: { description: Order not found }
    */
-  router.put("/assign-driver", assignDriver);
+  router.put("/assign-driver", (req, res, next) => assignDriver(io, req, res, next));
   router.put("/unassign-driver", unassignDriver);
 
   /**
@@ -457,7 +457,9 @@ const OrderRouter = (io) => {
    *       400: { description: Missing orderID/delivery_code }
    *       404: { description: Order not found or invalid delivery code }
    */
-  router.post("/confirm-delivery", confirmDeliveryCode);
+  router.post("/confirm-delivery", (req, res, next) =>
+    confirmDeliveryCode(io, req, res, next),
+  );
 
   /**
    * @swagger

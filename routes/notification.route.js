@@ -3,6 +3,7 @@ const {
   getAllNotifications,
   getCustomerNotifications,
   getMarketRepNotifications,
+  getDriverNotifications,
   markNotificationRead,
   markAllNotificationsRead,
   deleteNotification,
@@ -77,6 +78,23 @@ const NotificationRouter = () => {
    *       400: { description: Distributor ID is required }
    */
   router.get("/marketrep/:distributorId", getMarketRepNotifications);
+
+  /**
+   * @swagger
+   * /notification/driver/{driverId}:
+   *   get:
+   *     summary: Get the authenticated driver's notification history
+   *     tags: [Notifications]
+   *     parameters:
+   *       - in: path
+   *         name: driverId
+   *         required: true
+   *         schema: { type: string }
+   *     responses:
+   *       200: { description: Notifications for this driver }
+   *       403: { description: The authenticated user is not this driver }
+   */
+  router.get("/driver/:driverId", getDriverNotifications);
 
   /**
    * @swagger

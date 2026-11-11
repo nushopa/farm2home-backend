@@ -1,8 +1,7 @@
 const bcrypt = require("bcrypt");
 const Driver = require("../../models/Driver");
 const jwt = require("jsonwebtoken");
-const { transporter } = require("../../lib/util/transporter");
-
+const { sendResendEmail } = require("../../lib/util/sendResendEmail");
 
 const RESET_PASSWORD_TOKEN_EXPIRY = "15m"; // 15 minutes expiry for the reset token
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -26,15 +25,14 @@ module.exports.forgotPassword = async (req, res, next) => {
       JWT_SECRET,
       {
         expiresIn: RESET_PASSWORD_TOKEN_EXPIRY,
-      }
+      },
     );
 
     // Create a reset link
     const resetLink = `${process.env.F_URL}/reset-password?token=${resetToken}`;
 
     // Send the email
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    await sendResendEmail({
       to: email,
       subject: "Password Reset Request",
       text: `You requested to reset your password. Click the link to reset it: ${resetLink}`,
@@ -42,12 +40,10 @@ module.exports.forgotPassword = async (req, res, next) => {
              <a href="${resetLink}">${resetLink}</a>`,
     });
 
-    res
-      .status(200)
-      .send({
-        message: "Password reset link sent to your email!",
-        success: true,
-      });
+    res.status(200).send({
+      message: "Password reset link sent to your email!",
+      success: true,
+    });
   } catch (error) {
     next(error);
   }

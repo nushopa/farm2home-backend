@@ -1,4 +1,5 @@
 const Driver = require("../../models/Driver");
+const { notifyUser } = require("../../lib/util/deliverNotification");
 
 const sanitizeDriver = (driver) => {
   const obj = driver.toObject();
@@ -71,7 +72,7 @@ module.exports.editDriver = async (req, res, next) => {
   }
 };
 
-module.exports.updateDriverReviewStatus = async (req, res, next) => {
+module.exports.updateDriverReviewStatus = async (io, req, res, next) => {
   const { id } = req.params;
   const { review } = req.body;
 
@@ -89,6 +90,17 @@ module.exports.updateDriverReviewStatus = async (req, res, next) => {
 
     driver.review = review;
     await driver.save();
+
+    await notifyUser(io, driver, {
+      userModel: "Drivers",
+      category: "onboarding_status",
+      title: review ? "Rider onboarding approved" : "Rider onboarding review updated",
+      message: review
+        ? "Your rider account has been approved."
+        : "Your rider application is still under review.",
+      metadata: { review, status: review ? "approved" : "pending" },
+      channels: ["push", "email"],
+    });
 
     res.status(200).send({
       message: `Driver review status updated successfully to ${

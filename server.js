@@ -1,7 +1,3 @@
-// --- Polyfill global crypto for Node 18 (mongodb driver expects it globally) ---
-const { webcrypto } = require("crypto");
-if (!globalThis.crypto) globalThis.crypto = webcrypto;
-
 console.log("🔍 NODE VERSION:", process.version);
 console.log("🔍 NODE_ENV at boot:", process.env.NODE_ENV);
 
@@ -234,7 +230,7 @@ app.use("/marketplace", MarketplaceRouter(io));
 app.use("/review", ReviewRouter);
 app.use("/driver", DriverRouter(io));
 app.use("/marketrep", RepDashboardRouter(io));
-app.use("/adverts", AdvertRouter());
+app.use("/adverts", AdvertRouter(io));
 app.use("/consent", ConsentRoute());
 // FIX: device.route.js now takes io, so sendMarketingPush can persist +
 // broadcast the marketing notification, not just push it.

@@ -1,12 +1,15 @@
-const crypto    = require("crypto");
-const bcrypt    = require("bcrypt");
-const { transporter }                        = require("../../lib/util/transporter");
-const PendingMarketRep                       = require("../../models/PendingMarketRep");
-const Distributor                            = require("../../models/Distributor");
-const { generateToken, createDistributorNotification } = require("../marketRep/oauthService");
+const crypto = require("crypto");
+const bcrypt = require("bcrypt");
+const { sendResendEmail } = require("../../lib/util/sendResendEmail");
+const PendingMarketRep = require("../../models/PendingMarketRep");
+const Distributor = require("../../models/Distributor");
+const {
+  generateToken,
+  createDistributorNotification,
+} = require("../marketRep/oauthService");
 
-const BCRYPT_ROUNDS   = 12;
-const OTP_TTL_MS      = 15 * 60 * 1000;   // 15 minutes
+const BCRYPT_ROUNDS = 12;
+const OTP_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const OTP_MAX_ATTEMPTS = 5;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -22,7 +25,9 @@ function generateOTP() {
  * Returns a plain object safe to include in API responses.
  */
 function sanitizeDistributor(distributor) {
-  const obj = distributor.toObject ? distributor.toObject() : { ...distributor };
+  const obj = distributor.toObject
+    ? distributor.toObject()
+    : { ...distributor };
   delete obj.password;
   delete obj.proofOfIdentity;
   delete obj.__v;
@@ -35,7 +40,11 @@ async function initialRegistration(req, res, next) {
     const { email, firstName, lastName, password } = req.body;
 
     if (!email || !firstName || !lastName || !password) {
-      return res.status(400).json({ message: "Email, first name, last name, and password are required." });
+      return res
+        .status(400)
+        .json({
+          message: "Email, first name, last name, and password are required.",
+        });
     }
 
     // Reject if a verified Distributor account already exists for this email
@@ -55,21 +64,29 @@ async function initialRegistration(req, res, next) {
         email,
         firstName,
         lastName,
-        password:    hashedPassword,
-        verified:    false,
-        otp:         undefined,
-        otpExpiry:   undefined,
+        password: hashedPassword,
+        verified: false,
+        otp: undefined,
+        otpExpiry: undefined,
         otpAttempts: 0,
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
 
-    return res.status(200).json({ message: "Initial registration stored. Proceed to request an OTP." });
+    return res
+      .status(200)
+      .json({
+        message: "Initial registration stored. Proceed to request an OTP.",
+      });
   } catch (error) {
     // MongoDB duplicate-key on the unique index means two concurrent requests
     // raced. Treat it as a harmless idempotent success — the record exists.
     if (error.code === 11000) {
-      return res.status(200).json({ message: "Initial registration stored. Proceed to request an OTP." });
+      return res
+        .status(200)
+        .json({
+          message: "Initial registration stored. Proceed to request an OTP.",
+        });
     }
     next(error);
   }
@@ -90,29 +107,30 @@ async function requestOTP(req, res, next) {
 
     const pending = await PendingMarketRep.findOne({ email });
     if (!pending) {
-      return res.status(400).json({ message: "Please complete initial registration first." });
+      return res
+        .status(400)
+        .json({ message: "Please complete initial registration first." });
     }
 
-    const otp       = generateOTP();
+    const otp = generateOTP();
     const otpExpiry = new Date(Date.now() + OTP_TTL_MS);
     const hashedOtp = await bcrypt.hash(otp, BCRYPT_ROUNDS);
 
     await PendingMarketRep.updateOne(
       { email },
       {
-        otp:         hashedOtp,
+        otp: hashedOtp,
         otpExpiry,
-        verified:    false,
-        otpAttempts: 0,         // reset counter on each fresh OTP
-      }
+        verified: false,
+        otpAttempts: 0, // reset counter on each fresh OTP
+      },
     );
 
-    await transporter.sendMail({
-      from:    process.env.EMAIL_FROM,
-      to:      email,
+    await sendResendEmail({
+      to: email,
       subject: "Your OTP for Market Rep Registration",
-      text:    `Your one-time password is: ${otp}\n\nIt expires in 15 minutes. Do not share it with anyone.`,
-      html:    `<p>Your one-time password is: <strong>${otp}</strong></p><p>It expires in 15 minutes. Do not share it with anyone.</p>`,
+      text: `Your one-time password is: ${otp}\n\nIt expires in 15 minutes. Do not share it with anyone.`,
+      html: `<p>Your one-time password is: <strong>${otp}</strong></p><p>It expires in 15 minutes. Do not share it with anyone.</p>`,
     });
 
     return res.status(200).json({ message: "OTP sent to your email." });
@@ -131,40 +149,46 @@ async function verifyOTP(req, res, next) {
 
     const record = await PendingMarketRep.findOne({ email });
     if (!record) {
-      return res.status(400).json({ message: "No pending registration found." });
+      return res
+        .status(400)
+        .json({ message: "No pending registration found." });
     }
 
     if (!record.otp || !record.otpExpiry) {
-      return res.status(400).json({ message: "No OTP has been requested. Please request one first." });
+      return res
+        .status(400)
+        .json({
+          message: "No OTP has been requested. Please request one first.",
+        });
     }
 
     // Check expiry before consuming an attempt
     if (Date.now() > record.otpExpiry) {
       await PendingMarketRep.updateOne(
         { email },
-        { $unset: { otp: "", otpExpiry: "" }, otpAttempts: 0 }
+        { $unset: { otp: "", otpExpiry: "" }, otpAttempts: 0 },
       );
-      return res.status(400).json({ message: "OTP has expired. Please request a new one." });
+      return res
+        .status(400)
+        .json({ message: "OTP has expired. Please request a new one." });
     }
 
     // Brute-force guard
     if (record.otpAttempts >= OTP_MAX_ATTEMPTS) {
       await PendingMarketRep.updateOne(
         { email },
-        { $unset: { otp: "", otpExpiry: "" }, otpAttempts: 0 }
+        { $unset: { otp: "", otpExpiry: "" }, otpAttempts: 0 },
       );
       return res.status(429).json({
-        message: "Too many incorrect attempts. OTP invalidated — please request a new one.",
+        message:
+          "Too many incorrect attempts. OTP invalidated — please request a new one.",
       });
     }
 
     const isValid = await bcrypt.compare(otp, record.otp);
 
     if (!isValid) {
-      await PendingMarketRep.updateOne(
-        { email },
-        { $inc: { otpAttempts: 1 } }
-      );
+      await PendingMarketRep.updateOne({ email }, { $inc: { otpAttempts: 1 } });
       const remaining = OTP_MAX_ATTEMPTS - (record.otpAttempts + 1);
       return res.status(400).json({
         message: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`,
@@ -174,7 +198,7 @@ async function verifyOTP(req, res, next) {
     // Consume the OTP so it cannot be reused
     await PendingMarketRep.updateOne(
       { email },
-      { verified: true, $unset: { otp: "", otpExpiry: "" }, otpAttempts: 0 }
+      { verified: true, $unset: { otp: "", otpExpiry: "" }, otpAttempts: 0 },
     );
 
     return res.status(200).json({ message: "OTP verified successfully." });
@@ -186,21 +210,41 @@ async function verifyOTP(req, res, next) {
 // ─── Step 4: Complete profile and create Distributor account ──────────────────
 async function createMarketRepAccount(io, req, res, next) {
   try {
-    const { email, phoneNumber, dateOfBirth, address, workCity, proofOfIdentity } = req.body;
+    const {
+      email,
+      phoneNumber,
+      dateOfBirth,
+      address,
+      workCity,
+      proofOfIdentity,
+    } = req.body;
 
-    if (!email || !phoneNumber || !dateOfBirth || !address || !workCity || !proofOfIdentity) {
-      return res.status(400).json({ message: "All required fields must be provided." });
+    if (
+      !email ||
+      !phoneNumber ||
+      !dateOfBirth ||
+      !address ||
+      !workCity ||
+      !proofOfIdentity
+    ) {
+      return res
+        .status(400)
+        .json({ message: "All required fields must be provided." });
     }
 
     const record = await PendingMarketRep.findOne({ email });
     if (!record) {
-      return res.status(400).json({ message: "No pending registration found." });
+      return res
+        .status(400)
+        .json({ message: "No pending registration found." });
     }
     if (!record.verified) {
       return res.status(400).json({ message: "Email OTP not verified." });
     }
     if (!record.firstName || !record.lastName || !record.password) {
-      return res.status(400).json({ message: "Initial registration incomplete. Please restart." });
+      return res
+        .status(400)
+        .json({ message: "Initial registration incomplete. Please restart." });
     }
 
     // Re-check email uniqueness at creation time (guard against concurrent sign-ups)
@@ -212,7 +256,9 @@ async function createMarketRepAccount(io, req, res, next) {
 
     const phoneExists = await Distributor.findOne({ phoneNumber }).lean();
     if (phoneExists) {
-      return res.status(409).json({ message: "Phone number already registered." });
+      return res
+        .status(409)
+        .json({ message: "Phone number already registered." });
     }
 
     // Validate and store profile picture as a URL, not raw base64.
@@ -220,22 +266,23 @@ async function createMarketRepAccount(io, req, res, next) {
     // use that. The fallback handles a local buffer upload for development.
     let profilePicture = "";
     if (req.file) {
-      profilePicture = req.file.location   // multer-s3 / Cloudinary URL
-        ?? `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+      profilePicture =
+        req.file.location ?? // multer-s3 / Cloudinary URL
+        `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
     }
 
     const newDistributor = await Distributor.create({
-      firstName:         record.firstName,
-      lastName:          record.lastName,
+      firstName: record.firstName,
+      lastName: record.lastName,
       email,
-      password:          record.password,   // already hashed in step 1
+      password: record.password, // already hashed in step 1
       phoneNumber,
       dateOfBirth,
       address,
-      city:              workCity,
+      city: workCity,
       proofOfIdentity,
       profilePicture,
-      authProvider:      "email",
+      authProvider: "email",
       isProfileComplete: true,
     });
 
@@ -249,11 +296,13 @@ async function createMarketRepAccount(io, req, res, next) {
     return res.status(201).json({
       message: "Account created successfully.",
       token,
-      data:    sanitizeDistributor(newDistributor),
+      data: sanitizeDistributor(newDistributor),
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({ message: "Email or phone number already registered." });
+      return res
+        .status(409)
+        .json({ message: "Email or phone number already registered." });
     }
     next(error);
   }
@@ -263,10 +312,19 @@ async function createMarketRepAccount(io, req, res, next) {
 async function completeOAuthProfile(io, req, res, next) {
   try {
     const distributorId = req.user.id;
-    const { phoneNumber, dateOfBirth, address, workCity, proofOfIdentity } = req.body;
+    const { phoneNumber, dateOfBirth, address, workCity, proofOfIdentity } =
+      req.body;
 
-    if (!phoneNumber || !dateOfBirth || !address || !workCity || !proofOfIdentity) {
-      return res.status(400).json({ message: "All profile fields are required." });
+    if (
+      !phoneNumber ||
+      !dateOfBirth ||
+      !address ||
+      !workCity ||
+      !proofOfIdentity
+    ) {
+      return res
+        .status(400)
+        .json({ message: "All profile fields are required." });
     }
 
     const phoneExists = await Distributor.findOne({
@@ -275,20 +333,23 @@ async function completeOAuthProfile(io, req, res, next) {
     }).lean();
 
     if (phoneExists) {
-      return res.status(409).json({ message: "Phone number already registered." });
+      return res
+        .status(409)
+        .json({ message: "Phone number already registered." });
     }
 
     let profilePicture;
     if (req.file) {
-      profilePicture = req.file.location
-        ?? `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+      profilePicture =
+        req.file.location ??
+        `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
     }
 
     const updatePayload = {
       phoneNumber,
       dateOfBirth,
       address,
-      city:              workCity,
+      city: workCity,
       proofOfIdentity,
       isProfileComplete: true,
       ...(profilePicture !== undefined && { profilePicture }),
@@ -297,7 +358,7 @@ async function completeOAuthProfile(io, req, res, next) {
     const distributor = await Distributor.findByIdAndUpdate(
       distributorId,
       updatePayload,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     if (!distributor) {
@@ -311,11 +372,13 @@ async function completeOAuthProfile(io, req, res, next) {
     return res.status(200).json({
       message: "Profile completed successfully.",
       token,
-      data:    sanitizeDistributor(distributor),
+      data: sanitizeDistributor(distributor),
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({ message: "Phone number already registered." });
+      return res
+        .status(409)
+        .json({ message: "Phone number already registered." });
     }
     next(error);
   }

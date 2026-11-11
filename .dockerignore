@@ -1,0 +1,7 @@
+node_modules
+.git
+.env
+.env.*
+serviceAccountKey.json
+nushopa-web-firebase-adminsdk-fbsvc-c9d98fede7.json
+coverage

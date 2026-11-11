@@ -1,5 +1,5 @@
-# Use the official Node.js 18 image as the base image
-FROM node:18
+# Use the official Node.js 22 image required by firebase-admin
+FROM node:22
 
 # Set the working directory inside the container
 WORKDIR /app

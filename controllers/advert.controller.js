@@ -1,8 +1,12 @@
 const Advert = require("../models/Advert");
 const cloud = require("../config/cloud");
 const cloudinary = require("cloudinary").v2;
+const {
+  notifyAdminAction,
+  notifyCustomerAudience,
+} = require("../lib/util/deliverNotification");
 
-async function uploadAdvert(req, res) {
+async function uploadAdvert(io, req, res) {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Image file is required" });
@@ -25,6 +29,26 @@ async function uploadAdvert(req, res) {
     });
 
     await advert.save();
+    const notificationPayload = {
+      category: "marketing",
+      title: "New advert on Nushopa",
+      message: `${advert.title} is now available.`,
+      metadata: { advertId: advert._id.toString() },
+      kind: "marketing",
+    };
+    try {
+      await notifyCustomerAudience(io, notificationPayload);
+    } catch (notifyErr) {
+      console.error("Failed to notify customers about new advert:", notifyErr);
+    }
+    try {
+      await notifyAdminAction(io, {
+        ...notificationPayload,
+        channels: ["push"],
+      });
+    } catch (notifyErr) {
+      console.error("Failed to notify admins about new advert:", notifyErr);
+    }
     return res.status(200).json({ 
       message: "Advert uploaded successfully", 
       advert 

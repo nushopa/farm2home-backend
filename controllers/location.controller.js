@@ -1,5 +1,5 @@
 const Order = require("../models/Order");
-const Notification = require("../models/Notification");
+const { notifyOrderStatus } = require("./order.controller");
 
 async function updatePickupLocation(io, req, res, next) {
   const { orderID, pickup_location } = req.body;
@@ -11,28 +11,26 @@ async function updatePickupLocation(io, req, res, next) {
   }
 
   try {
-    // Find the order by orderID and update the pickup_location
     const order = await Order.findOneAndUpdate(
       { orderID },
       { pickup_location },
       { new: true }
     );
-    order.status = "ready for pickup";
-    await order.save();
 
     if (!order) {
       return res.status(404).json({ message: "Order not found." });
     }
-    await Notification.create({
-      orderId: orderID,
-      category: "market-rep",
-      title: "Order ready for pickup!",
-      message: `${orderID} is ready for pickup`,
-    });
+    order.status = "ready for pickup";
+    await order.save();
+    try {
+      await notifyOrderStatus(io, order, order.status, {
+        title: "Order ready for pickup!",
+        body: `${orderID} is ready for pickup.`,
+      });
+    } catch (notifyErr) {
+      console.error("Failed to notify pickup-location recipients:", notifyErr);
+    }
 
-    // Emit notifications to all connected clients
-    const notifications = await Notification.find();
-    io.emit("notification", notifications);
     res
       .status(200)
       .json({ message: "Pickup location updated successfully.", order });
@@ -63,16 +61,15 @@ async function updatePickupDetails(io, req, res, next) {
     if (!order) {
       return res.status(404).json({ message: "Order not found." });
     }
-    await Notification.create({
-      category: "order",
-      orderId: orderID,
-      title: "Pickup Ongoing!",
-      message: `${orderID} Driver is going to pickup location`,
-    });
+    try {
+      await notifyOrderStatus(io, order, order.status, {
+        title: "Pickup ongoing",
+        body: `The rider is traveling to the pickup location for order ${orderID}.`,
+      });
+    } catch (notifyErr) {
+      console.error("Failed to notify pickup-detail recipients:", notifyErr);
+    }
 
-    // Emit notifications to all connected clients
-    const notifications = await Notification.find();
-    io.emit("notification", notifications);
     res
       .status(200)
       .json({ message: "Pickup details updated successfully.", order });
@@ -103,16 +100,15 @@ async function updateDeliveryDetails(io, req, res, next) {
     if (!order) {
       return res.status(404).json({ message: "Order not found." });
     }
-    await Notification.create({
-      category: "order",
-      orderId: orderID,
-      title: "Order Shipped!",
-      message: `${orderID} Driver is going to delivery location`,
-    });
+    try {
+      await notifyOrderStatus(io, order, order.status, {
+        title: "Order shipped",
+        body: `The rider is traveling to the delivery location for order ${orderID}.`,
+      });
+    } catch (notifyErr) {
+      console.error("Failed to notify delivery-detail recipients:", notifyErr);
+    }
 
-    // Emit notifications to all connected clients
-    const notifications = await Notification.find();
-    io.emit("notification", notifications);
     res
       .status(200)
       .json({ message: "Delivery details updated successfully.", order });

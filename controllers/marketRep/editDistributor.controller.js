@@ -1,4 +1,5 @@
 const Distributor = require("../../models/Distributor");
+const { notifyUser } = require("../../lib/util/deliverNotification");
 
 // Fields that callers must never be able to overwrite through an edit endpoint
 const PROTECTED_FIELDS = new Set([
@@ -39,7 +40,7 @@ async function editDistributor(req, res, next) {
 }
 
 // ─── Update review / approval status ─────────────────────────────────────────
-async function updateDistributorReviewStatus(req, res, next) {
+async function updateDistributorReviewStatus(io, req, res, next) {
   try {
     const { id }     = req.params;
     const { review } = req.body;
@@ -61,6 +62,19 @@ async function updateDistributorReviewStatus(req, res, next) {
     if (!distributor) {
       return res.status(404).json({ message: "Distributor not found." });
     }
+
+    await notifyUser(io, distributor, {
+      userModel: "Distributor",
+      category: "onboarding_status",
+      title: review
+        ? "Market rep onboarding approved"
+        : "Market rep onboarding review updated",
+      message: review
+        ? "Your market representative account has been approved."
+        : "Your market representative application is still under review.",
+      metadata: { review, status: review ? "approved" : "pending" },
+      channels: ["push", "email"],
+    });
 
     return res.status(200).json({
       message:      `Distributor status updated to "${review ? "verified" : "under review"}".`,

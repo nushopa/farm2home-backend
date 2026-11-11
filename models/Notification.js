@@ -7,6 +7,20 @@ const NotificationSchema = new mongoose.Schema(
       ref: "Customer",
       default: null,
     },
+    recipient_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    recipient_model: {
+      type: String,
+      enum: ["Customer", "Drivers", "Distributor", null],
+      default: null,
+    },
+    recipient_role: {
+      type: Number,
+      default: null,
+    },
     orderId: {
       type: String,
       ref: "Order",
@@ -32,7 +46,7 @@ const NotificationSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    metadata: { type: Object, default: {} }
+    metadata: { type: Object, default: {} },
   },
   { timestamps: true }
 );

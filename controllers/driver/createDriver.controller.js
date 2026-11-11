@@ -4,12 +4,13 @@ const jwt = require("jsonwebtoken");
 const Driver = require("../../models/Driver");
 const PendingDriver = require("../../models/PendingDriver");
 const Notification = require("../../models/Notification");
-const { transporter } = require("../../lib/util/transporter");
+const { sendResendEmail } = require("../../lib/util/sendResendEmail");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const sanitizeDriver = (driver) => {
-  const obj = typeof driver.toObject === "function" ? driver.toObject() : driver;
+  const obj =
+    typeof driver.toObject === "function" ? driver.toObject() : driver;
   delete obj.password;
   return obj;
 };
@@ -36,11 +37,10 @@ async function requestOTP(req, res, next) {
     await PendingDriver.findOneAndUpdate(
       { email },
       { email, otp, otpExpiry, verified: false },
-      { upsert: true, returnDocument: "after" }
+      { upsert: true, returnDocument: "after" },
     );
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
+    await sendResendEmail({
       to: email,
       subject: "Your OTP for Driver Registration",
       text: `Your OTP is: ${otp}. It will expire in 15 minutes.`,
@@ -210,7 +210,7 @@ async function createDriverAccount(io, req, res, next) {
     const token = jwt.sign(
       { id: newDriver._id, email: newDriver.email },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: "24h" },
     );
 
     return res.status(201).json({
@@ -355,7 +355,7 @@ async function createOauthDriverAccount(io, req, res, next) {
     const token = jwt.sign(
       { id: newDriver._id, email: newDriver.email },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: "24h" },
     );
 
     return res.status(201).json({

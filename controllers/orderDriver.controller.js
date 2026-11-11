@@ -1,8 +1,9 @@
 const Order = require("../models/Order");
 const Driver = require("../models/Driver");
 const { sendPushNotification } = require("../lib/util/sendPush");
+const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
 
-async function assignDriver(req, res) {
+async function assignDriver(io, req, res) {
   const { orderID, driverID } = req.body;
   try {
     // Find the order by orderID
@@ -32,20 +33,22 @@ async function assignDriver(req, res) {
 
     await order.populate("driver_assigned"); // Populate the driver details
 
-    // --- Push notification to the driver (transactional) ---
-    // No-ops until the driver app exists and registers a Device with
-    // userModel: "Driver", userId: driverID — safe to ship ahead of that.
-    try {
-      await sendPushNotification({
-        userId: driverID,
-        title: "New delivery assigned to you 🚴",
-        body: `Order ${orderID} has been assigned to you for delivery.`,
-        data: { type: "order-assigned", orderId: orderID },
-        kind: "transactional",
-      });
-    } catch (pushErr) {
-      console.error("Failed to send driver-assigned push:", pushErr);
-    }
+    await notifyUser(io, driver, {
+      userModel: "Drivers",
+      category: "order_assigned",
+      orderId: orderID,
+      title: "New delivery assigned to you 🚴",
+      message: `Order ${orderID} has been assigned to you for delivery.`,
+      channels: ["push", "email"],
+    });
+    await notifyAdminAction(io, {
+      category: "order_assigned",
+      orderId: orderID,
+      title: "Rider assigned to order",
+      message: `Order ${orderID} was assigned to rider ${driver.firstName} ${driver.lastName}.`,
+      metadata: { driverId: String(driverID) },
+      channels: ["push", "email"],
+    });
 
     // --- Push notification to the customer (transactional) ---
     try {

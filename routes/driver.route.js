@@ -430,7 +430,9 @@ const DriverRouter = (io) => {
    *       400: { description: review must be a boolean }
    *       404: { description: Driver not found }
    */
-  router.put("/:id/review", updateDriverReviewStatus);
+  router.put("/:id/review", (req, res, next) =>
+    updateDriverReviewStatus(io, req, res, next),
+  );
 
   return router;
 };

@@ -126,8 +126,8 @@ async function initializeTransaction(req, res) {
     );
     const squadMessage = error?.response?.data?.message;
     return res.status(500).send({
-       message: "Could not start payment." || squadMessage
-      });
+      message: squadMessage || "Could not start payment.",
+    });
   }
 }
 
