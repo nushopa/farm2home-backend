@@ -3,8 +3,8 @@ const cors = require("cors");
 const allowedOrigins = [
   "https://nushopa.com",
   "https://www.nushopa.com",
-  process.env.R_URL,
-  process.env.ADMIN_URL,
+  process.env.R_URL ||  'https://www.rep.nushopa.com',
+  process.env.ADMIN_URL || "https://admin.nushopa.com",
   process.env.D_URL || "https://rider.nushopa.com",
   "http://localhost:5173",
   "http://localhost:5174",
