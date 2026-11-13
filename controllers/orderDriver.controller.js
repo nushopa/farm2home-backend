@@ -2,6 +2,7 @@ const Order = require("../models/Order");
 const Driver = require("../models/Driver");
 const Customer = require("../models/Customer");
 const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
+const { sendDetailedOrderAssignedEmail } = require("../lib/sendAssignmentEmail");
 
 async function assignDriver(io, req, res) {
   const { orderID, driverID } = req.body;
@@ -39,8 +40,13 @@ async function assignDriver(io, req, res) {
       orderId: orderID,
       title: "New delivery assigned to you 🚴",
       message: `Order ${orderID} has been assigned to you for delivery.`,
-      channels: ["push", "email"],
+      channels: ["push"],
     });
+    try {
+      await sendDetailedOrderAssignedEmail(order, driver, "rider");
+    } catch (emailError) {
+      console.error("Failed to email rider order details:", emailError);
+    }
     await notifyAdminAction(io, {
       category: "order_assigned",
       orderId: orderID,

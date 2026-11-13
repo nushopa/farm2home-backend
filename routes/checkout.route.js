@@ -5,15 +5,93 @@ const {
   addAdress,
   deleteAddress,
 } = require("../controllers/checkout.controller");
+const {
+  getDeliveryOptions,
+  getFastDeliveryConfig,
+  updateFastDeliveryConfig,
+} = require("../controllers/delivery.controller");
+const { authMiddleware } = require("../middleware/authMiddleware");
 
 const checkOutRouter = Router();
+const requireAdmin = (req, res, next) => {
+  if (req.role !== 5000) {
+    return res.status(403).send({ message: "Admin access required." });
+  }
+  return next();
+};
 
 /**
  * @swagger
  * tags:
  *   - name: Checkout
  *     description: Saved delivery addresses
+ *   - name: Delivery
+ *     description: Customer delivery options and admin provider settings
  */
+
+/**
+ * @swagger
+ * /checkout/delivery-options:
+ *   post:
+ *     summary: Get standard and fast delivery quotes for an address
+ *     tags: [Delivery]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [customer_id, address]
+ *             properties:
+ *               customer_id: { type: string }
+ *               address: { type: object }
+ *     responses:
+ *       200: { description: Delivery options, prices and temporary quote IDs }
+ *       422: { description: Delivery is unavailable for the selected city }
+ */
+checkOutRouter.post(
+  "/delivery-options",
+  authMiddleware,
+  getDeliveryOptions,
+);
+
+/**
+ * @swagger
+ * /checkout/delivery-provider:
+ *   get:
+ *     summary: Get fast-delivery provider settings (admin only, secret omitted)
+ *     security:
+ *       - bearerAuth: []
+ *     tags: [Delivery]
+ *     responses:
+ *       200: { description: Provider endpoint and configuration status }
+ *   put:
+ *     summary: Update fast-delivery provider settings (admin only)
+ *     security:
+ *       - bearerAuth: []
+ *     tags: [Delivery]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [endpoint, feePath, enabled]
+ *             properties:
+ *               endpoint: { type: string }
+ *               apiKey: { type: string }
+ *               feePath: { type: string, example: data.amount }
+ *               enabled: { type: boolean }
+ *     responses:
+ *       200: { description: Provider settings saved }
+ *       403: { description: Admin access required }
+ *       422: { description: Invalid provider settings }
+ */
+checkOutRouter
+  .route("/delivery-provider")
+  .all(authMiddleware, requireAdmin)
+  .get(getFastDeliveryConfig)
+  .put(updateFastDeliveryConfig);
 
 /**
  * @swagger

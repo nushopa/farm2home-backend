@@ -18,6 +18,12 @@ const OrderSchema = new mongoose.Schema(
        required: true 
       },
     address: { type: Object },
+    delivery_mode: {
+      type: String,
+      enum: ["standard", "fast"],
+      default: "standard",
+    },
+    delivery_fee: { type: Number, min: 0 },
     status: { type: String, default: "Processing" },
     orderID: { type: String, trim: true, unique: true },
     distributor_assigned: {

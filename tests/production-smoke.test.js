@@ -7,6 +7,7 @@ process.env.NODE_ENV = "production";
 process.env.GOOGLE_CLIENT_ID = "test-client-id";
 process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
 process.env.BACKEND_URL = "http://localhost:3000";
+process.env.JWT_SECRET = "test-jwt-secret";
 
 const { privateKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,

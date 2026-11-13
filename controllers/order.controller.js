@@ -11,10 +11,25 @@ const { notifyOrderPlaced } = require("../lib/util/notifyOrderPlaced");
 const Driver = require("../models/Driver");
 
 async function addOrder(io, req, res, next) {
-  const { orderID, products, address, customer_id, amount_paid } = req.body;
+  const {
+    orderID,
+    products,
+    address,
+    customer_id,
+    amount_paid,
+    delivery_mode = "standard",
+    delivery_fee,
+  } = req.body;
 
   if (!address || !orderID || !customer_id || !products || !amount_paid) {
     return res.status(422).send({ message: "All fields are required!" });
+  }
+  if (
+    !["standard", "fast"].includes(delivery_mode) ||
+    (delivery_fee !== undefined &&
+      (!Number.isFinite(Number(delivery_fee)) || Number(delivery_fee) < 0))
+  ) {
+    return res.status(422).send({ message: "Invalid delivery selection." });
   }
 
   try {
@@ -41,6 +56,10 @@ async function addOrder(io, req, res, next) {
 
     const order = await Order.create({
       address,
+      delivery_mode,
+      ...(delivery_fee !== undefined
+        ? { delivery_fee: Number(delivery_fee) }
+        : {}),
       orderID,
       products,
       customer_id,

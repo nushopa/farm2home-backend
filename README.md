@@ -37,6 +37,20 @@ SDK.
 - Use a development/test Mongo database with a customer cart, delivery address,
   and `PriceList` entry for that address's city. The order total and delivery
   availability are computed from these records by the backend.
+- The web checkout requests standard and fast quotes from
+  `POST /checkout/delivery-options`. Standard delivery uses the city's
+  `PriceList.estimatePrice`; fast delivery is optional and can be configured by
+  an admin in the dashboard. The customer checkout sends the selected quote ID
+  to payment initialization, and the backend snapshots its delivery mode and
+  fee into the pending and fulfilled order. Quotes expire after 15 minutes.
+- The provider integration uses a generic contract: the backend POSTs
+  `{ "deliveryMode": "fast", "address": { ... }, "currency": "NGN" }` to the
+  configured endpoint with `Authorization: Bearer <API key>`. The provider
+  must return a JSON response whose configured fee path (default `amount`) is
+  a non-negative amount in naira, for example `{ "data": { "amount": 2500 } }`
+  with fee path `data.amount`. The API key is never returned by the admin
+  settings endpoint or sent to the browser. The provider endpoint must use
+  HTTPS in production.
 - The local callback returns to `/order-status/:reference`; that page polls the
   backend, which verifies pending payments with Squad. The Squad webhook cannot
   reach a private localhost server unless you expose a public development

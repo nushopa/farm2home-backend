@@ -10,6 +10,7 @@ const {
   sendNotificationEmail,
 } = require("../lib/util/deliverNotification");
 const { notifyOrderStatus } = require("./order.controller");
+const { sendDetailedOrderAssignedEmail } = require("../lib/sendAssignmentEmail");
 
 async function assignDistributor(io, req, res) {
   const { orderID, distributorID } = req.body;
@@ -59,8 +60,13 @@ async function assignDistributor(io, req, res) {
       orderId: orderID,
       title: "New order assigned to you 📦",
       message: `Order ${orderID} has been assigned to you for pickup.`,
-      channels: ["push", "email"],
+      channels: ["push"],
     });
+    try {
+      await sendDetailedOrderAssignedEmail(order, distributor, "market representative");
+    } catch (emailError) {
+      console.error("Failed to email market rep order details:", emailError);
+    }
     await notifyAdminAction(io, {
       category: "order_assigned",
       orderId: orderID,

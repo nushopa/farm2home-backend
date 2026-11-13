@@ -120,10 +120,21 @@ describe("notification helpers", () => {
       }),
     );
     expect(sendOrderConfirmationEmail).toHaveBeenCalledWith(
-      "Customer",
-      customer.email,
-      order.delivery_code,
-      order.orderID,
+      expect.objectContaining({
+        customerFirstName: "Customer",
+        customerEmail: customer.email,
+        deliveryCode: order.delivery_code,
+        orderID: order.orderID,
+        amountPaid: order.amount_paid,
+        items: [
+          expect.objectContaining({
+            name: "Apples",
+            quantity: 2,
+            price: 50,
+            lineTotal: 100,
+          }),
+        ],
+      }),
     );
   });
 

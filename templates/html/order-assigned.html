@@ -1,33 +1,50 @@
-<table style="width: 100%; font-family: Arial, sans-serif; border-collapse: collapse; background-color: #f9f9f9; padding: 20px;">
+<table style="width:100%;font-family:Arial,sans-serif;border-collapse:collapse;background:#f9f9f9;padding:20px;">
   <tr>
-    <td style="text-align: center; padding: 20px; background-color: #007145; color: #ffffff; font-size: 24px; font-weight: bold;">
-      Nushopa
-    </td>
+    <td style="text-align:center;padding:20px;background:#007145;color:#fff;font-size:24px;font-weight:bold;">Nushopa</td>
   </tr>
   <tr>
-    <td style="padding: 20px; color: #333333;">
-      <h2 style="font-size: 22px; color: #007145;">Hello, {{recipientName}}</h2>
-      <p style="font-size: 16px; line-height: 1.6;">
-        A new order has just been assigned to you. Here are the details:
-      </p>
-      <table style="width: 100%; border: 1px solid #dddddd; margin-top: 20px; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 10px; background-color: #f2f2f2; font-weight: bold; border: 1px solid #dddddd;">Order ID</td>
-          <td style="padding: 10px; border: 1px solid #dddddd;">{{orderID}}</td>
-        </tr>
-        <tr>
-          <td style="padding: 10px; background-color: #f2f2f2; font-weight: bold; border: 1px solid #dddddd;">Delivery Address</td>
-          <td style="padding: 10px; border: 1px solid #dddddd;">{{deliveryAddress}}</td>
-        </tr>
+    <td style="padding:20px;color:#333;">
+      <h2 style="font-size:22px;color:#007145;">Hello, {{recipientName}}</h2>
+      <p>A new order has been assigned to you. Please review the details below.</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+        <tr><td style="padding:10px;background:#f2f2f2;border:1px solid #ddd;"><strong>Order ID</strong></td><td style="padding:10px;border:1px solid #ddd;">{{orderID}}</td></tr>
+        <tr><td style="padding:10px;background:#f2f2f2;border:1px solid #ddd;"><strong>Delivery method</strong></td><td style="padding:10px;border:1px solid #ddd;">{{deliveryMode}}</td></tr>
+        <tr><td style="padding:10px;background:#f2f2f2;border:1px solid #ddd;"><strong>Delivery address</strong></td><td style="padding:10px;border:1px solid #ddd;">{{deliveryAddress}}</td></tr>
       </table>
-      <p style="font-size: 16px; line-height: 1.6; margin-top: 20px;">
-        Please log in to your dashboard to view the full order and begin processing it.
-      </p>
+      {{#if items.length}}
+      <h3 style="color:#007145;">Order items</h3>
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr>
+          <th style="padding:10px;border:1px solid #ddd;text-align:left;">Item</th>
+          <th style="padding:10px;border:1px solid #ddd;">Qty</th>
+          <th style="padding:10px;border:1px solid #ddd;text-align:right;">Unit price</th>
+          <th style="padding:10px;border:1px solid #ddd;text-align:right;">Item total</th>
+        </tr></thead>
+        <tbody>
+          {{#each items}}
+          <tr>
+            <td style="padding:10px;border:1px solid #ddd;">{{name}}</td>
+            <td style="padding:10px;border:1px solid #ddd;text-align:center;">{{quantity}}</td>
+            <td style="padding:10px;border:1px solid #ddd;text-align:right;">{{unitPrice}}</td>
+            <td style="padding:10px;border:1px solid #ddd;text-align:right;">{{lineTotalFormatted}}</td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+      <table style="width:100%;border-collapse:collapse;margin-top:20px;">
+        <tr><td style="padding:8px;"><strong>Subtotal</strong></td><td style="padding:8px;text-align:right;">{{subtotal}}</td></tr>
+        <tr><td style="padding:8px;"><strong>Delivery fee</strong></td><td style="padding:8px;text-align:right;">{{deliveryFee}}</td></tr>
+        <tr><td style="padding:8px;"><strong>Service fee</strong></td><td style="padding:8px;text-align:right;">{{serviceFee}}</td></tr>
+        <tr><td style="padding:10px;border-top:2px solid #333;"><strong>Amount paid</strong></td><td style="padding:10px;border-top:2px solid #333;text-align:right;"><strong>{{amountPaid}}</strong></td></tr>
+      </table>
+      <h3 style="margin-top:24px;color:#007145;">Customer details</h3>
+      <p><strong>Name:</strong> {{customerName}}<br><strong>Phone:</strong> {{customerPhone}}</p>
+      {{else}}
+      <p>Please log in to your dashboard to view the full order and begin processing it.</p>
+      {{/if}}
     </td>
   </tr>
   <tr>
-    <td style="text-align: center; padding: 10px; background-color: #007145; color: #ffffff; font-size: 14px;">
-      &copy; 2024 Nushopa. All Rights Reserved.
-    </td>
+    <td style="text-align:center;padding:10px;background:#007145;color:#fff;">&copy; Nushopa. All rights reserved.</td>
   </tr>
 </table>
