@@ -1,3 +1,20 @@
+jest.mock("../lib/firebaseAdmin", () => {
+  const messaging = {
+    send: jest.fn().mockResolvedValue("mock-message-id"),
+    sendEachForMulticast: jest
+      .fn()
+      .mockResolvedValue({ successCount: 0, failureCount: 0, responses: [] }),
+    sendEach: jest
+      .fn()
+      .mockResolvedValue({ successCount: 0, failureCount: 0, responses: [] }),
+  };
+
+  return {
+    admin: { messaging: () => messaging },
+    messaging,
+  };
+});
+
 jest.mock("../models/Notification", () => ({
   find: jest.fn(),
 }));

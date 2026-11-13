@@ -1,3 +1,20 @@
+jest.mock("../lib/firebaseAdmin", () => {
+  const messaging = {
+    send: jest.fn().mockResolvedValue("mock-message-id"),
+    sendEachForMulticast: jest
+      .fn()
+      .mockResolvedValue({ successCount: 0, failureCount: 0, responses: [] }),
+    sendEach: jest
+      .fn()
+      .mockResolvedValue({ successCount: 0, failureCount: 0, responses: [] }),
+  };
+
+  return {
+    admin: { messaging: () => messaging },
+    messaging,
+  };
+});
+
 process.env.GOOGLE_CLIENT_ID = "test-client-id";
 process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
 process.env.BACKEND_URL = "http://localhost:3000";
