@@ -1,4 +1,8 @@
-jest.mock("axios", () => ({ post: jest.fn() }));
+jest.mock("axios", () => {
+  const axios = jest.fn();
+  axios.post = jest.fn();
+  return axios;
+});
 jest.mock("../models/DeliveryQuote", () => ({ create: jest.fn() }));
 jest.mock("../models/DeliveryProviderConfig", () => ({
   findOne: jest.fn(),
@@ -26,6 +30,7 @@ function createResponse() {
 describe("getDeliveryOptions", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    axios.mockReset();
     PriceList.findOne.mockResolvedValue({ estimatePrice: 800 });
     DeliveryProviderConfig.findOne.mockResolvedValue({
       enabled: true,
@@ -40,7 +45,7 @@ describe("getDeliveryOptions", () => {
   });
 
   it("returns standard and fast quotes using the configured provider response fee", async () => {
-    axios.post.mockResolvedValue({ data: { data: { deliveryFee: "1250" } } });
+    axios.mockResolvedValue({ data: { data: { deliveryFee: "1250" } } });
     const req = {
       userId: "customer-1",
       body: {
@@ -54,14 +59,15 @@ describe("getDeliveryOptions", () => {
     await getDeliveryOptions(req, res, next);
 
     expect(next).not.toHaveBeenCalled();
-    expect(axios.post).toHaveBeenCalledWith(
-      "https://courier.example/quote",
-      {
-        deliveryMode: "fast",
-        address: { city: "Ikeja", address: "10 Market Road" },
-        currency: "NGN",
-      },
+    expect(axios).toHaveBeenCalledWith(
       expect.objectContaining({
+        url: "https://courier.example/quote",
+        method: "POST",
+        data: {
+          deliveryMode: "fast",
+          address: { city: "Ikeja", address: "10 Market Road" },
+          currency: "NGN",
+        },
         headers: { Authorization: "Bearer test-token" },
       }),
     );
@@ -91,8 +97,41 @@ describe("getDeliveryOptions", () => {
     });
   });
 
+  it("sends the quote as a GET with query params when the config method is GET", async () => {
+    DeliveryProviderConfig.findOne.mockResolvedValue({
+      enabled: true,
+      endpoint: "https://courier.example/quote",
+      apiKey: "test-token",
+      feePath: "data.deliveryFee",
+      method: "GET",
+    });
+    axios.mockResolvedValue({ data: { data: { deliveryFee: 900 } } });
+    const res = createResponse();
+
+    await getDeliveryOptions(
+      {
+        userId: "customer-1",
+        body: { customer_id: "customer-1", address: { city: "Ikeja" } },
+      },
+      res,
+      jest.fn(),
+    );
+
+    expect(axios).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "GET",
+        params: {
+          deliveryMode: "fast",
+          currency: "NGN",
+          address: JSON.stringify({ city: "Ikeja" }),
+        },
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
   it("keeps standard delivery available when the provider quote fails", async () => {
-    axios.post.mockRejectedValue(new Error("provider unavailable"));
+    axios.mockRejectedValue(new Error("provider unavailable"));
     const logError = jest.spyOn(console, "error").mockImplementation(() => {});
     const req = {
       userId: "customer-1",
@@ -105,6 +144,7 @@ describe("getDeliveryOptions", () => {
 
     await getDeliveryOptions(req, res, jest.fn());
 
+    expect(axios).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith({
       options: {
@@ -153,6 +193,7 @@ describe("getDeliveryOptions", () => {
       config: {
         endpoint: "https://courier.example/quote",
         feePath: "data.deliveryFee",
+        method: "POST",
         enabled: true,
         hasApiKey: true,
       },

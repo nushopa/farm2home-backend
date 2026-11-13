@@ -1,4 +1,25 @@
-jest.mock("axios", () => ({ post: jest.fn() }));
+// Squad config is read when payment.controller loads, so set it first.
+process.env.SQUAD_SECRET_KEY = "sandbox_sk_test";
+process.env.SQUAD_BASE_URL = "https://sandbox-api-d.squadco.com";
+
+jest.mock("axios", () => {
+  const axios = jest.fn();
+  axios.post = jest.fn();
+  return axios;
+});
+
+// Stop the firebase chain from loading in CI:
+// payment.controller -> notifyOrderPlaced -> deliverNotification -> sendPush -> firebaseAdmin
+jest.mock("../lib/firebaseAdmin", () => ({
+  getCredential: jest.fn(),
+  admin: { messaging: () => ({ send: jest.fn() }) },
+}));
+jest.mock("../lib/util/notifyOrderPlaced", () => {
+  const fn = jest.fn();
+  fn.notifyOrderPlaced = fn; // supports default and named imports
+  return fn;
+});
+
 jest.mock("../models/Order", () => ({}));
 jest.mock("../models/PendingOrder", () => ({ create: jest.fn() }));
 jest.mock("../models/Cart", () => ({ find: jest.fn() }));
