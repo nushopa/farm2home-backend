@@ -18,6 +18,7 @@ jest.mock("../lib/firebaseAdmin", () => {
 process.env.GOOGLE_CLIENT_ID = "test-client-id";
 process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
 process.env.BACKEND_URL = "http://localhost:3000";
+process.env.JWT_SECRET = "test-jwt-secret";
 
 const request = require("supertest");
 const { app } = require("../server");
