@@ -4,12 +4,21 @@ jest.mock("../lib/util/sendPush", () => ({
 jest.mock("../lib/util/sendResendEmail", () => ({
   sendResendEmail: jest.fn(),
 }));
+jest.mock("../models/Driver", () => ({
+  find: jest.fn(),
+}));
+jest.mock("../models/Distributor", () => ({
+  find: jest.fn(),
+}));
 
 const Customer = require("../models/Customer");
+const Driver = require("../models/Driver");
+const Distributor = require("../models/Distributor");
 const Notification = require("../models/Notification");
 const { sendResendEmail } = require("../lib/util/sendResendEmail");
 const { sendPushNotification } = require("../lib/util/sendPush");
 const {
+  emailAllUsers,
   notifyCustomerAudience,
   notifyRole,
   notifyUser,
@@ -44,7 +53,6 @@ describe("notification delivery", () => {
       message: "Delivery code: ABC123",
       orderId: "order-1",
       metadata: { deliveryCode: "ABC123" },
-      channels: ["push", "email"],
     });
 
     expect(Notification.create).toHaveBeenCalledWith(
@@ -93,7 +101,6 @@ describe("notification delivery", () => {
       category: "order",
       title: "New order",
       message: "An order was placed.",
-      channels: ["push", "email"],
     });
 
     expect(Customer.find).toHaveBeenCalledWith({ role: 5000 });
@@ -101,9 +108,13 @@ describe("notification delivery", () => {
     expect(sendResendEmail).toHaveBeenCalledTimes(2);
   });
 
-  test("sends marketing notifications only to customer-role devices", async () => {
+  test("sends marketing push and email notifications to customers", async () => {
     const query = {
-      distinct: jest.fn().mockResolvedValue(["customer-1", "customer-2"]),
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        { _id: "customer-1", email: "one@example.com" },
+        { _id: "customer-2", email: "two@example.com" },
+      ]),
     };
     const notification = { _id: "notification-1" };
     const io = { emit: jest.fn() };
@@ -128,5 +139,40 @@ describe("notification delivery", () => {
       }),
     );
     expect(io.emit).toHaveBeenCalledWith("notification", notification);
+    expect(sendResendEmail).toHaveBeenCalledTimes(2);
+  });
+
+  test("emails marketing broadcasts to each registered account type", async () => {
+    const makeQuery = (users) => ({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(users),
+    });
+
+    jest.spyOn(Customer, "find").mockReturnValue(
+      makeQuery([{ email: "shared@example.com" }, { email: "customer@example.com" }]),
+    );
+    jest.spyOn(Driver, "find").mockReturnValue(
+      makeQuery([{ email: "rider@example.com" }, { email: "shared@example.com" }]),
+    );
+    jest.spyOn(Distributor, "find").mockReturnValue(
+      makeQuery([{ email: "rep@example.com" }]),
+    );
+    sendResendEmail.mockResolvedValue({ id: "email-1" });
+
+    await emailAllUsers({
+      title: "Store update",
+      message: "A new update is available.",
+    });
+
+    expect(sendResendEmail).toHaveBeenCalledTimes(4);
+    expect(sendResendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "customer@example.com" }),
+    );
+    expect(sendResendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "rider@example.com" }),
+    );
+    expect(sendResendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "rep@example.com" }),
+    );
   });
 });

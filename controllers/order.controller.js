@@ -1,39 +1,14 @@
 const Order = require("../models/Order");
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
-const Notification = require("../models/Notification");
 const Customer = require("../models/Customer");
 const Distributor = require("../models/Distributor");
 const { authMiddleware } = require("../middleware/authMiddleware");
 const crypto = require("crypto");
-const { sendOrderConfirmationEmail } = require("../lib/sendOrderEmail");
 const { sendOrderAssignedEmail } = require("../lib/sendAssignmentEmail");
-const { sendPushNotification } = require("../lib/util/sendPush");
 const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
+const { notifyOrderPlaced } = require("../lib/util/notifyOrderPlaced");
 const Driver = require("../models/Driver");
-
-function getProductPrice(product) {
-  return product?.product_price ?? 0;
-}
-
-function formatNaira(amount) {
-  const n = Number(amount) || 0;
-  return `\u20a6${n.toLocaleString("en-NG")}`;
-}
-
-function buildOrderSummary(products, productMap) {
-  const items = products.map((item) => {
-    const productId = item.product_id._id;
-    const product = productMap.get(String(productId));
-    const quantity = parseInt(item.product_quatity) || 0;
-    const name = product?.product_name || "Item";
-    const price = getProductPrice(product);
-    return { product_id: productId, name, quantity, price, lineTotal: price * quantity };
-  });
-
-  const shortSummary = items.map((i) => `${i.quantity}x ${i.name}`).join(", ");
-  return { items, shortSummary };
-}
 
 async function addOrder(io, req, res, next) {
   const { orderID, products, address, customer_id, amount_paid } = req.body;
@@ -113,55 +88,10 @@ async function addOrder(io, req, res, next) {
 
     await Cart.deleteMany({ customer_id });
 
-    const user = await Customer.findById(customer_id);
-    const { items, shortSummary } = buildOrderSummary(products, productMap);
-    const summaryLine = `${shortSummary} \u2022 Total ${formatNaira(amount_paid)} \u2022 Delivery code ${deliveryCode}`;
-
-    await notifyAdminAction(io, {
-      category: "order",
-      orderId: orderID,
-      title: "A new order has been placed",
-      message: `${user?.first_name || "A customer"} ${user?.last_name || ""} placed order ${orderID}.`.trim(),
-      metadata: { customerId: String(customer_id) },
-      channels: ["push", "email"],
-    });
-
-    const customerNotification = await Notification.create({
-      category: "order_placed",
-      orderId: orderID,
-      title: "Order confirmed \ud83c\udf89",
-      customer_id,
-      message: summaryLine,
-      metadata: { items, total: amount_paid, deliveryCode },
-    });
-    io.to(`customer_${customer_id}`).emit("notification", customerNotification);
-
-    if (order) {
-      const customerEmail = order.address.email || user?.email;
-      const customerFirstName = order.address.first_name;
-      await sendOrderConfirmationEmail(
-        customerFirstName,
-        customerEmail,
-        deliveryCode,
-        order.orderID,
-      );
-    }
-
     try {
-      await sendPushNotification({
-        userId: customer_id,
-        title: "Order placed! \ud83c\udf89",
-        body: summaryLine,
-        data: {
-          type: "order-placed",
-          orderId: orderID,
-          deliveryCode,
-          notificationId: customerNotification._id.toString(),
-        },
-        kind: "transactional",
-      });
-    } catch (pushErr) {
-      console.error("Failed to send order-placed push:", pushErr);
+      await notifyOrderPlaced(io, order);
+    } catch (notifyErr) {
+      console.error("Failed to notify order recipients:", notifyErr);
     }
 
     res.status(200).send({ order, distributors });

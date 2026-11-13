@@ -4,7 +4,11 @@ const Customer = require("../models/Customer");
 const { sendEmail } = require("../lib/util/sendEmail");
 const Chat = require("../models/Chat");
 const { sendPushNotification } = require("../lib/util/sendPush");
-const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
+const {
+  notifyAdminAction,
+  notifyUser,
+  sendNotificationEmail,
+} = require("../lib/util/deliverNotification");
 const { notifyOrderStatus } = require("./order.controller");
 
 async function assignDistributor(io, req, res) {
@@ -112,6 +116,21 @@ async function unassignDistributor(req, res) {
       });
     } catch (pushErr) {
       console.error("Failed to send distributor-unassigned push:", pushErr);
+    }
+    try {
+      const distributor = await Customer.findById(previousDistributorId);
+      if (distributor) {
+        await sendNotificationEmail(distributor, {
+          title: "Order unassigned",
+          message: `Order ${orderID} is no longer assigned to you.`,
+        });
+      } else {
+        console.warn(
+          `Cannot email distributor-unassigned notification: ${previousDistributorId} not found.`,
+        );
+      }
+    } catch (emailErr) {
+      console.error("Failed to load distributor-unassigned email recipient:", emailErr);
     }
 
     res

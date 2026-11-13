@@ -1,6 +1,10 @@
 const Notification = require("../models/Notification");
 const Customer = require("../models/Customer");
 const { sendPushNotification } = require("../lib/util/sendPush");
+const {
+  sendNotificationEmail,
+  emailAllUsers,
+} = require("../lib/util/deliverNotification");
 const { getOptionalUser } = require("../lib/util/optionalAuth");
 
 const MARKET_REP_ROLE = 6000;
@@ -123,6 +127,17 @@ const emitMarketRepNotification = async (io, distributorId, notification) => {
   );
 
   try {
+    const distributor = await verifyMarketRep(distributorId);
+    if (distributor) {
+      await sendNotificationEmail(distributor, notification);
+    } else {
+      console.warn(`Cannot email market rep notification: ${distributorId} not found.`);
+    }
+  } catch (emailErr) {
+    console.error("Failed to load market rep notification email recipient:", emailErr);
+  }
+
+  try {
     await sendPushNotification({
       userId: distributorId,
       title: notification?.title || "New update",
@@ -139,12 +154,23 @@ const emitMarketRepNotification = async (io, distributorId, notification) => {
   }
 };
 
-const emitCustomerNotification = (io, customerId, notification) => {
+const emitCustomerNotification = async (io, customerId, notification) => {
   io.to(`customer_${customerId}`).emit("notification", notification);
+  try {
+    const customer = await Customer.findById(customerId);
+    if (customer) {
+      await sendNotificationEmail(customer, notification);
+    } else {
+      console.warn(`Cannot email customer notification: ${customerId} not found.`);
+    }
+  } catch (emailErr) {
+    console.error("Failed to load customer notification email recipient:", emailErr);
+  }
 };
 
-const emitBroadcastNotification = (io, notification) => {
+const emitBroadcastNotification = async (io, notification) => {
   io.emit("notification", notification);
+  await emailAllUsers(notification);
 };
 
 const markNotificationRead = async (req, res) => {

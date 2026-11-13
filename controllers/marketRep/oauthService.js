@@ -1,6 +1,9 @@
 const jwt = require("jsonwebtoken");
 const Notification = require("../../models/Notification");
-const { notifyAdminAction } = require("../../lib/util/deliverNotification");
+const {
+  sendWelcomeEmail,
+  notifyAdminOnboarded,
+} = require("../../lib/util/onboarding");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "24h";
@@ -32,21 +35,32 @@ async function createDistributorNotification(io, distributor) {
   const { firstName, lastName } = distributor;
   const fullName = `${firstName} ${lastName}`;
 
-  const notification = await Notification.create({
-    category:  "distributor",
-    title:     "New market rep registered",
-    full_name: fullName,
-    message:   `${fullName} created an account.`,
-  });
+  const onboardingTasks = await Promise.allSettled([
+    (async () => {
+      const notification = await Notification.create({
+        category: "distributor",
+        title: "New market rep registered",
+        full_name: fullName,
+        message: `${fullName} created an account.`,
+      });
 
-  // Emit only the new notification rather than refetching the entire collection
-  io.emit("notification", notification);
-  await notifyAdminAction(io, {
-    category: "market_rep_onboarding",
-    title: "New market rep registered",
-    message: `${fullName} completed market rep registration.`,
-    metadata: { marketRepId: String(distributor._id) },
-    channels: ["push"],
+      io.emit("notification", notification);
+    })(),
+    sendWelcomeEmail("marketrep", {
+      email: distributor.email,
+      firstName,
+    }),
+    notifyAdminOnboarded(io, "marketrep", distributor),
+  ]);
+  const taskNames = [
+    "registration notification",
+    "welcome email",
+    "admin onboarding notification",
+  ];
+  onboardingTasks.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(`Market rep ${taskNames[index]} failed:`, result.reason);
+    }
   });
 }
 

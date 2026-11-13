@@ -1,6 +1,7 @@
 const passport       = require("passport");
 const GoogleStrategy  = require("passport-google-oauth20").Strategy;
 const Customer        = require("../models/Customer");
+const { sendWelcomeEmail } = require("../lib/util/onboarding");
 
 const findOrCreateGoogleUser = async (profile) => {
   const providerId = profile.id;
@@ -48,6 +49,15 @@ const findOrCreateGoogleUser = async (profile) => {
     provider_id:     providerId,
     role:            2001,
   });
+
+  try {
+    await sendWelcomeEmail("customer", {
+      email: newCustomer.email,
+      firstName: newCustomer.first_name,
+    });
+  } catch (error) {
+    console.error(`Failed to send customer welcome email to ${newCustomer.email}:`, error);
+  }
 
   return newCustomer;
 };

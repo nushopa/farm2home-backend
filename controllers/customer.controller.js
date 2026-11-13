@@ -7,6 +7,7 @@ const { sendEmail } = require("../lib/util/sendEmail");
 const { authMiddleware } = require("../middleware/authMiddleware");
 const Notification = require("../models/Notification");
 const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
+const { sendWelcomeEmail, notifyAdminOnboarded } = require("../lib/util/onboarding");
 const TempUser = require("../models/tempUser");
 const BlacklistedToken = require("../models/BlacklistedToken");
 const passport = require("../config/passport");
@@ -195,15 +196,20 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
 
     await TempUser.deleteOne({ email });
 
-    const subject = "Welcome to Nushopa";
-    const emailFileName = "newUserEmailTemp";
-    const dataDetails = {
-      first_name: tempUserRecord.first_name,
-      last_name: tempUserRecord.last_name,
-      email: tempUserRecord.email,
-    };
-    const recieverEmail = email;
-    await sendEmail(recieverEmail, dataDetails, subject, emailFileName);
+    const onboardingType =
+      data.role === 6000 ? "marketrep" : data.role === 7000 ? "rider" : "customer";
+    const onboardingTasks = await Promise.allSettled([
+      sendWelcomeEmail(onboardingType, {
+        email: data.email,
+        firstName: data.first_name,
+      }),
+      notifyAdminOnboarded(io, onboardingType, data),
+    ]);
+    onboardingTasks.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(`Account onboarding notification ${index} failed:`, result.reason);
+      }
+    });
 
     await Notification.create({
       title: "A new account has been created",
@@ -213,20 +219,6 @@ module.exports.verifyOTPAndCreateAccount = async (io, req, res, next) => {
 
     const notifications = await Notification.find();
     io.emit("notification", notifications);
-    if (data.role === 6000) {
-      try {
-        await notifyAdminAction(io, {
-          category: "market_rep_onboarding",
-          title: "New market rep registered",
-          message: `${data.first_name} ${data.last_name} created a market representative account.`,
-          metadata: { marketRepId: String(data._id) },
-          channels: ["push"],
-        });
-      } catch (notifyErr) {
-        console.error("Failed to notify admins about new market rep:", notifyErr);
-      }
-    }
-
     // Web: httpOnly cookie only. Mobile: token returned in the body.
     const { platform, token } = await issueAuth(req, res, {
       userId: data._id,
@@ -538,7 +530,7 @@ module.exports.updateMarketRepProfile = async (req, res, next) => {
             title: "Market rep profile completed",
             message: `${marketRep.first_name} ${marketRep.last_name} completed their profile.`,
             metadata: { marketRepId: String(marketRep._id) },
-            channels: ["push"],
+            channels: ["push", "email"],
           });
         } catch (notifyErr) {
           console.error("Failed to notify admins about completed market rep profile:", notifyErr);

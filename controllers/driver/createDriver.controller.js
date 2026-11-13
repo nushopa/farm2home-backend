@@ -5,6 +5,10 @@ const Driver = require("../../models/Driver");
 const PendingDriver = require("../../models/PendingDriver");
 const Notification = require("../../models/Notification");
 const { sendResendEmail } = require("../../lib/util/sendResendEmail");
+const {
+  sendWelcomeEmail,
+  notifyAdminOnboarded,
+} = require("../../lib/util/onboarding");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -14,6 +18,21 @@ const sanitizeDriver = (driver) => {
   delete obj.password;
   return obj;
 };
+
+async function notifyDriverOnboarded(io, driver) {
+  const onboardingTasks = await Promise.allSettled([
+    sendWelcomeEmail("rider", {
+      email: driver.email,
+      firstName: driver.firstName,
+    }),
+    notifyAdminOnboarded(io, "rider", driver),
+  ]);
+  onboardingTasks.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(`Rider onboarding notification ${index} failed:`, result.reason);
+    }
+  });
+}
 
 /**
  * Step 1: Request OTP
@@ -206,6 +225,7 @@ async function createDriverAccount(io, req, res, next) {
 
     const notifications = await Notification.find();
     io.emit("notification", notifications);
+    await notifyDriverOnboarded(io, newDriver);
 
     const token = jwt.sign(
       { id: newDriver._id, email: newDriver.email },
@@ -351,6 +371,7 @@ async function createOauthDriverAccount(io, req, res, next) {
 
     const notifications = await Notification.find();
     io.emit("notification", notifications);
+    await notifyDriverOnboarded(io, newDriver);
 
     const token = jwt.sign(
       { id: newDriver._id, email: newDriver.email },

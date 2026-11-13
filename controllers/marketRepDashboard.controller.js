@@ -33,7 +33,7 @@ const createMarketRepNotification = async (
     isRead: false,              // ensure field is explicitly initialized
   });
 
-  emitMarketRepNotification(io, distributorId, notification);
+  await emitMarketRepNotification(io, distributorId, notification);
   return notification;
 };
 

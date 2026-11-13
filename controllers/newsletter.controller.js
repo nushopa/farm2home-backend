@@ -1,6 +1,7 @@
 const { authMiddleware } = require("../middleware/authMiddleware");
 const News = require("../models/NewsLetter");
 const Notification = require("../models/Notification");
+const { emailRole } = require("../lib/util/deliverNotification");
 
 // subscribe
 module.exports.subcribeNews = async (io, req, res, next) => {
@@ -15,12 +16,17 @@ module.exports.subcribeNews = async (io, req, res, next) => {
 
   const saved = await News.create({ email });
 
-  if (saved)
-    await Notification.create({
+  if (saved) {
+    const notification = await Notification.create({
       category: "newsletter",
       title: "newsletter signup",
       message: `${email} signed up for newsletter`,
     });
+    await emailRole(5000, {
+      title: notification.title,
+      message: notification.message,
+    });
+  }
 
   // Emit notifications to all connected clients
   const notifications = await Notification.find();

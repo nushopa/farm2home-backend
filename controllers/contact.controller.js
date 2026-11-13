@@ -1,5 +1,6 @@
 const Contact = require("../models/Contact");
 const Notification = require("../models/Notification");
+const { emailRole } = require("../lib/util/deliverNotification");
 
 async function sendMessage(io, req, res, next) {
   try {
@@ -13,10 +14,14 @@ async function sendMessage(io, req, res, next) {
       email,
       message,
     });
-    await Notification.create({
+    const notification = await Notification.create({
       title: "message from support portal",
       category: "support-portal",
       message: message,
+    });
+    await emailRole(5000, {
+      title: notification.title,
+      message: `${fullname} (${email}) sent a support message: ${message}`,
     });
     // Emit notifications to all connected clients
     const notifications = await Notification.find();

@@ -1,6 +1,6 @@
 const Order = require("../models/Order");
 const Driver = require("../models/Driver");
-const { sendPushNotification } = require("../lib/util/sendPush");
+const Customer = require("../models/Customer");
 const { notifyAdminAction, notifyUser } = require("../lib/util/deliverNotification");
 
 async function assignDriver(io, req, res) {
@@ -50,19 +50,25 @@ async function assignDriver(io, req, res) {
       channels: ["push", "email"],
     });
 
-    // --- Push notification to the customer (transactional) ---
     try {
       if (order.customer_id) {
-        await sendPushNotification({
-          userId: order.customer_id,
-          title: "A rider has been assigned 🚴",
-          body: "Your order is being prepared for delivery.",
-          data: { type: "rider-assigned", orderId: order.orderID },
-          kind: "transactional",
-        });
+        const customer = await Customer.findById(order.customer_id);
+        if (customer) {
+          await notifyUser(io, customer, {
+            category: "rider_assigned",
+            orderId: order.orderID,
+            title: "A rider has been assigned 🚴",
+            message: "Your order is being prepared for delivery.",
+            channels: ["push", "email"],
+          });
+        } else {
+          console.warn(
+            `Cannot notify customer about rider assignment: ${order.customer_id} not found.`,
+          );
+        }
       }
-    } catch (pushErr) {
-      console.error("Failed to send rider-assigned push:", pushErr);
+    } catch (notifyErr) {
+      console.error("Failed to notify customer about rider assignment:", notifyErr);
     }
 
     res.status(200).json({
@@ -98,32 +104,45 @@ async function unassignDriver(req, res) {
     order.driver_assigned = null;
     await order.save();
 
-    // --- Push notification to the (former) driver (transactional) ---
     try {
-      await sendPushNotification({
-        userId: previousDriverId,
-        title: "Delivery unassigned",
-        body: `Order ${orderID} is no longer assigned to you.`,
-        data: { type: "order-unassigned", orderId: orderID },
-        kind: "transactional",
-      });
-    } catch (pushErr) {
-      console.error("Failed to send driver-unassigned push:", pushErr);
+      const driver = await Driver.findById(previousDriverId);
+      if (driver) {
+        await notifyUser(io, driver, {
+          userModel: "Drivers",
+          category: "order_unassigned",
+          orderId: orderID,
+          title: "Delivery unassigned",
+          message: `Order ${orderID} is no longer assigned to you.`,
+          channels: ["push", "email"],
+        });
+      } else {
+        console.warn(
+          `Cannot notify former driver about unassignment: ${previousDriverId} not found.`,
+        );
+      }
+    } catch (notifyErr) {
+      console.error("Failed to notify former driver about unassignment:", notifyErr);
     }
 
-    // --- Push notification to the customer (transactional) ---
     try {
       if (order.customer_id) {
-        await sendPushNotification({
-          userId: order.customer_id,
-          title: "Delivery reassignment in progress",
-          body: "Your rider assignment changed — we're finding you a new one now.",
-          data: { type: "rider-unassigned", orderId: order.orderID },
-          kind: "transactional",
-        });
+        const customer = await Customer.findById(order.customer_id);
+        if (customer) {
+          await notifyUser(io, customer, {
+            category: "rider_unassigned",
+            orderId: order.orderID,
+            title: "Delivery reassignment in progress",
+            message: "Your rider assignment changed — we're finding you a new one now.",
+            channels: ["push", "email"],
+          });
+        } else {
+          console.warn(
+            `Cannot notify customer about rider unassignment: ${order.customer_id} not found.`,
+          );
+        }
       }
-    } catch (pushErr) {
-      console.error("Failed to send rider-unassigned push:", pushErr);
+    } catch (notifyErr) {
+      console.error("Failed to notify customer about rider unassignment:", notifyErr);
     }
 
     res.status(200).json({ message: "Driver unassigned successfully", order });

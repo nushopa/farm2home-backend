@@ -1,4 +1,5 @@
 const { sendPushNotification } = require("../lib/util/sendPush");
+const { emailAllUsers } = require("../lib/util/deliverNotification");
 const { authMiddleware } = require("../middleware/authMiddleware");
 const Notification = require("../models/Notification");
 
@@ -35,6 +36,12 @@ module.exports.sendMarketingPush = async (io, req, res, next) => {
         message: body,
         metadata: data || {},
       });
+
+      try {
+        await emailAllUsers({ title, message: body });
+      } catch (emailErr) {
+        console.error("Failed to email marketing notification:", emailErr);
+      }
 
       // Marketing content has no private data, so a plain broadcast is
       // fine here — unlike order notifications, which must only ever go

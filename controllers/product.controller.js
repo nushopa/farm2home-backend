@@ -113,7 +113,7 @@ module.exports.addProduct = async (io, req, res, next) => {
     try {
       await notifyAdminAction(io, {
         ...notificationPayload,
-        channels: ["push"],
+        channels: ["push", "email"],
       });
     } catch (notifyErr) {
       console.error("Failed to notify admins about new product:", notifyErr);

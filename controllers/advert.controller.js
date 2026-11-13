@@ -44,7 +44,7 @@ async function uploadAdvert(io, req, res) {
     try {
       await notifyAdminAction(io, {
         ...notificationPayload,
-        channels: ["push"],
+        channels: ["push", "email"],
       });
     } catch (notifyErr) {
       console.error("Failed to notify admins about new advert:", notifyErr);
