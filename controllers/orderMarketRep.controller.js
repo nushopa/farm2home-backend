@@ -11,6 +11,29 @@ const {
 } = require("../lib/util/deliverNotification");
 const { notifyOrderStatus } = require("./order.controller");
 const { sendDetailedOrderAssignedEmail } = require("../lib/sendAssignmentEmail");
+const { authMiddleware } = require("../middleware/authMiddleware");
+
+const MARKET_REP_STATUSES = {
+  Processing: {
+    title: "Order is being processed",
+    body: "We've started processing your order.",
+  },
+  "ready for pickup": {
+    title: "Order ready for pickup",
+    body: "Your order is packed and ready for pickup by the rider.",
+  },
+  Shipped: {
+    title: "Your order has been shipped",
+    body: "Your order is on its way to you.",
+  },
+  Delivered: {
+    title: "Order delivered",
+    body: "Your order has arrived. Enjoy!",
+  },
+};
+const STATUS_FLOW = Object.keys(MARKET_REP_STATUSES);
+const LOCKED_STATUSES = ["Confirmed", "Completed"];
+
 
 async function assignDistributor(io, req, res) {
   const { orderID, distributorID } = req.body;
@@ -248,10 +271,69 @@ async function confirmDeliveryCode(io, req, res) {
   }
 }
 
+ async function updateOrderStatusByMarketRep (io, req, res) {
+  authMiddleware(req, res, async () => {
+    try {
+      const { userId, role } = req;
+      const { orderID, status } = req.body;
+
+      if (role !== 6000) {
+        return res.status(403).json({ success: false, message: "Only market representatives can do this." });
+      }
+      if (!orderID || !MARKET_REP_STATUSES[status]) {
+        return res.status(400).json({
+          success: false,
+          message: `Status must be one of: ${STATUS_FLOW.join(", ")}`,
+        });
+      }
+
+      const order = await Order.findOne({ orderID });
+      if (!order) {
+        return res.status(404).json({ success: false, message: "Order not found." });
+      }
+      if (String(order.distributor_assigned) !== String(userId)) {
+        return res.status(403).json({ success: false, message: "This order is not assigned to you." });
+      }
+      if (LOCKED_STATUSES.includes(order.status)) {
+        return res.status(400).json({ success: false, message: "This order is already complete." });
+      }
+
+      const currentIdx = STATUS_FLOW.findIndex(
+        (s) => s.toLowerCase() === String(order.status || "").toLowerCase(),
+      );
+      if (currentIdx !== -1 && STATUS_FLOW.indexOf(status) <= currentIdx) {
+        return res.status(400).json({
+          success: false,
+          message: `Order is already "${order.status}". Status can only move forward.`,
+        });
+      }
+
+      order.status = status;
+      await order.save();
+
+      try {
+        await notifyOrderStatus(io, order, status, MARKET_REP_STATUSES[status]);
+      } catch (notifyErr) {
+        console.error("Failed to notify order-status recipients:", notifyErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Order marked as ${status}`,
+        data: { orderID: order.orderID, status: order.status },
+      });
+    } catch (error) {
+      console.error("updateOrderStatusByMarketRep error:", error);
+      return res.status(500).json({ success: false, message: "Could not update order status." });
+    }
+  });
+};
+
 module.exports = {
   assignDistributor,
   unassignDistributor,
   getAssignedDistributor,
   getOrdersByDistributor,
   confirmDeliveryCode,
+  updateOrderStatusByMarketRep
 };

@@ -3,10 +3,11 @@ const Order = require("../models/Order");
 const Notification = require("../models/Notification");
 const {
   emitMarketRepNotification,
-  verifyMarketRep,           
+  verifyMarketRep,
 } = require("./notification.controller");
 
-const COMMISSION_RATE = 0.10;
+
+const COMMISSION_RATE = 0.1;
 
 // Centralized notification type constants — avoids typo bugs
 const NOTIFICATION_TYPES = {
@@ -14,15 +15,13 @@ const NOTIFICATION_TYPES = {
   DRIVER_NEARBY: "driver_nearby",
   COMMISSION_EARNED: "commission_earned",
 };
-
-
 const createMarketRepNotification = async (
   io,
   distributorId,
   category,
   title,
   message,
-  metadata = {}
+  metadata = {},
 ) => {
   const notification = await Notification.create({
     customer_id: distributorId, // market rep's ID stored under customer_id
@@ -30,13 +29,12 @@ const createMarketRepNotification = async (
     title,
     message,
     metadata,
-    isRead: false,              // ensure field is explicitly initialized
+    isRead: false, // ensure field is explicitly initialized
   });
 
   await emitMarketRepNotification(io, distributorId, notification);
   return notification;
 };
-
 
 const getTotalAssignedOrders = async (req, res) => {
   try {
@@ -74,7 +72,6 @@ const getTotalAssignedOrders = async (req, res) => {
     });
   }
 };
-
 
 const getConfirmedOrders = async (req, res) => {
   try {
@@ -114,7 +111,6 @@ const getConfirmedOrders = async (req, res) => {
   }
 };
 
-
 const getPendingOrders = async (req, res) => {
   try {
     const { distributorId } = req.params;
@@ -152,7 +148,6 @@ const getPendingOrders = async (req, res) => {
     });
   }
 };
-
 
 const getTotalCommission = async (req, res) => {
   try {
@@ -230,8 +225,20 @@ const getAssignedOrders = async (req, res) => {
     const assignedOrders = await Order.find({
       distributor_assigned: distributorId,
     })
-      .populate("customer_id")
-      .populate("distributor_assigned")
+      .populate({
+        path: "customer_id",
+        select: "first_name last_name email phone_number",
+      })
+      .populate({
+        path: "distributor_assigned",
+        select: "first_name last_name email",
+      })
+      .populate({
+        path: "products.product_id",
+        model: "Product",
+        select:
+          "product_name product_brand_name product_price product_image product_des",
+      })
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -248,7 +255,6 @@ const getAssignedOrders = async (req, res) => {
   }
 };
 
-
 const notifyOrderAssigned = async (io, order) => {
   await createMarketRepNotification(
     io,
@@ -256,10 +262,9 @@ const notifyOrderAssigned = async (io, order) => {
     NOTIFICATION_TYPES.ORDER_ASSIGNED,
     "Order Assigned",
     `You have been assigned a new order (ID: ${order._id}).`,
-    { orderId: order._id }
+    { orderId: order._id },
   );
 };
-
 
 const notifyDriverNearby = async (io, distributorId, driverId) => {
   await createMarketRepNotification(
@@ -268,10 +273,9 @@ const notifyDriverNearby = async (io, distributorId, driverId) => {
     NOTIFICATION_TYPES.DRIVER_NEARBY,
     "Driver Nearby",
     `A driver (ID: ${driverId}) is nearby your location.`,
-    { driverId }
+    { driverId },
   );
 };
-
 
 const notifyCommissionEarned = async (io, distributorId, amount) => {
   await createMarketRepNotification(
@@ -280,7 +284,7 @@ const notifyCommissionEarned = async (io, distributorId, amount) => {
     NOTIFICATION_TYPES.COMMISSION_EARNED,
     "Commission Earned",
     `You have earned a new commission of $${amount.toFixed(2)}.`,
-    { amount }
+    { amount },
   );
 };
 

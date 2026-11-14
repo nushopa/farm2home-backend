@@ -23,6 +23,7 @@ const {
   getAssignedDistributor,
   getOrdersByDistributor,
   confirmDeliveryCode,
+  updateOrderStatusByMarketRep
 } = require("../controllers/orderMarketRep.controller");
 const {
   assignDriver,
@@ -292,6 +293,33 @@ const OrderRouter = (io) => {
    */
   router.put("/update-pickup-details", (req, res, next) =>
     updatePickupDetails(io, req, res, next)
+  );
+
+
+  /**
+   * @swagger
+   * /order/update-order-status:
+   *   put:
+   *     summary: Update order status (market representative only)
+   *     tags: [Orders]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [orderID, status]
+   *             properties:
+   *               orderID: { type: string }
+   *               status: { type: string }
+   *     responses:
+   *       200: { description: Order status updated }
+   *       400: { description: Invalid status }
+   *       403: { description: Unauthorized }
+   *       404: { description: Order not found }
+   */
+  router.put("/update-order-status", (req, res, next) =>
+    updateOrderStatusByMarketRep(io, req, res, next)
   );
 
   /**
