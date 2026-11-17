@@ -4,7 +4,7 @@ const LOCAL_URL = `http://localhost:${process.env.PORT || 3000}`;
 
 const PROD_URL =
   process.env.RENDER_EXTERNAL_URL ||
-  "https://farm2home-backend-lkg9.onrender.com";
+  "https://api.nushopa.com";
 
 // Treat it as "production" if NODE_ENV says so, OR if Render's own
 // injected env var is present — this stops the dropdown from silently
